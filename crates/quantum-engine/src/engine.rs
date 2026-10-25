@@ -13,6 +13,8 @@ pub struct QuantumAnalyticsSnapshot {
     pub normalized_entropy: f64,
     pub entropy_production_rate: f64,
     pub ofi_acceleration: f64,
+    pub vpin: f64,
+    pub is_toxic_flow: bool,
     pub quantum_coherence: f64,
     pub tunneling_prob_ask: f64,
     pub tunneling_prob_bid: f64,
@@ -30,6 +32,7 @@ pub struct QuantumMarketEngine {
     pub density_matrix: DensityMatrix<2>,
     pub depth_psi: [Complex64; 8],
     pub prev_normalized_entropy: f64,
+    pub external_index_bias: f64,
     pub last_timestamp_ns: u64,
 }
 
@@ -52,8 +55,14 @@ impl QuantumMarketEngine {
             density_matrix: dm,
             depth_psi,
             prev_normalized_entropy: 1.0,
+            external_index_bias: 0.0,
             last_timestamp_ns: 0,
         }
+    }
+
+    /// Sets real-time external market index bias (e.g. SPY / ES futures lead-lag momentum in range [-1.0, 1.0]).
+    pub fn set_external_index_bias(&mut self, bias: f64) {
+        self.external_index_bias = bias.clamp(-1.0, 1.0);
     }
 
     #[inline(always)]
@@ -76,7 +85,7 @@ impl QuantumMarketEngine {
         let gamma_q_buy = (p_bid - 0.5).max(0.0) * 4.0;
         let gamma_q_sell = (p_ask - 0.5).max(0.0) * 4.0;
 
-        let h = MarketHamiltonian::build(&self.tracker);
+        let h = MarketHamiltonian::build_with_cross_asset(&self.tracker, self.external_index_bias);
         let jumps = LindbladSolver::market_jump_operators_2x2(1.0, gamma_q_buy, gamma_q_sell);
 
         if let Ok(updated_rho) = LindbladSolver::step_rk4(&self.density_matrix, &h, &jumps, dt_sec.min(0.1).max(0.0001)) {
@@ -184,6 +193,9 @@ impl QuantumMarketEngine {
             variance += diff * diff * depth_probs[i];
         }
 
+        let vpin = self.tracker.vpin;
+        let is_toxic_flow = vpin > 0.75;
+
         let mut snapshot = QuantumAnalyticsSnapshot {
             timestamp_ns: quote.timestamp_ns,
             mid_price: quote.mid_price(),
@@ -192,6 +204,8 @@ impl QuantumMarketEngine {
             normalized_entropy: norm_entropy,
             entropy_production_rate: entropy_rate,
             ofi_acceleration: ofi_accel,
+            vpin,
+            is_toxic_flow,
             quantum_coherence: coherence,
             tunneling_prob_ask: t_ask,
             tunneling_prob_bid: t_bid,

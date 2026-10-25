@@ -50,10 +50,14 @@ impl PhaseClassifier {
             snapshot.ofi_acceleration <= 1e-6
         };
 
+        // Anti-toxicity shield: If informed toxic flow is high, prevent contrarian fills
+        let toxic_shield_ok = !snapshot.is_toxic_flow || ofi_aligned;
+
         if max_tunnel > 0.72
             && snapshot.normalized_entropy < 0.88
             && snapshot.entropy_production_rate <= 0.01
             && ofi_aligned
+            && toxic_shield_ok
             && snapshot.fluid_metrics.flow_velocity > 0.005
         {
             let conf = max_tunnel.clamp(0.70, 0.99);

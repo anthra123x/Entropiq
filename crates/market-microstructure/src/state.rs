@@ -15,6 +15,7 @@ pub struct MarketTracker {
     pub accumulated_ofi: f64,
     pub last_ofi: f64,
     pub ofi_acceleration: f64,
+    pub vpin: f64,
     pub tick_size: f64,
 }
 
@@ -30,6 +31,7 @@ impl MarketTracker {
             accumulated_ofi: 0.0,
             last_ofi: 0.0,
             ofi_acceleration: 0.0,
+            vpin: 0.0,
             tick_size: if tick_size > 0.0 { tick_size } else { 0.01 },
         }
     }
@@ -64,6 +66,11 @@ impl MarketTracker {
             self.previous_quote = Some(prev);
         }
 
+        let total_depth = new_quote.bid_size + new_quote.ask_size;
+        if total_depth > 1e-6 && self.window_trade_count == 0 {
+            self.vpin = (new_quote.bid_size - new_quote.ask_size).abs() / total_depth;
+        }
+
         self.current_quote = Some(new_quote);
     }
 
@@ -74,6 +81,10 @@ impl MarketTracker {
             Side::Sell => self.window_sell_volume += trade.size,
         }
         self.window_trade_count += 1;
+        let total_vol = self.window_buy_volume + self.window_sell_volume;
+        if total_vol > 1e-6 {
+            self.vpin = (self.window_buy_volume - self.window_sell_volume).abs() / total_vol;
+        }
         self.last_trade = Some(trade);
     }
 
@@ -85,6 +96,7 @@ impl MarketTracker {
         self.accumulated_ofi = 0.0;
         self.last_ofi = 0.0;
         self.ofi_acceleration = 0.0;
+        self.vpin = 0.0;
     }
 
     /// Kinetic flow energy E_k = 0.5 * Mass * Velocity^2

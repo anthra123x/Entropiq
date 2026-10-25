@@ -167,6 +167,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 " \x1b[1;32m[ALPACA LIVE]\x1b[0m {:<5} | Mid: ${:<7.2} | Micro: ${:<7.2} | S: {:.3} | Coher: {:.3} | Fase: {:?}",
                 sym, mid, micro, entropy, coherence, phase
             );
+            if sym == "SPY" {
+                let bias = ((micro - mid) / (mid * 0.0001)).clamp(-1.0, 1.0);
+                engine.set_external_index_bias(bias);
+            }
         }
 
         // Step B: Generate realistic tick stream to exercise quantum engine under load
@@ -174,6 +178,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let current_regime = regimes[regime_idx % regimes.len()];
         if total_processed_ticks % 10_000 == 0 && total_processed_ticks > 0 {
             regime_idx += 1;
+        }
+
+        // Cross-asset lead-lag coupling: QuantumBreakout induces macro index drift
+        if current_regime == MarketRegime::QuantumBreakout {
+            engine.set_external_index_bias(0.60);
+        } else {
+            engine.set_external_index_bias(0.0);
         }
 
         for _ in 0..50 {
@@ -199,10 +210,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 recent_latencies_ns.push(elapsed_ns);
             }
 
-            // Dynamic execution with stateful position management, Kelly leverage, and Decoherence stop
+            // Dynamic execution with Maker/Taker spread capture, Kelly leverage, and Decoherence stop
             if let Some(snap) = snap_opt {
                 if !in_position {
-                    if snap.active_phase == MarketQuantumPhase::SuperconductingBreakout && snap.phase_confidence > 0.75 {
+                    if snap.active_phase == MarketQuantumPhase::SuperconductingBreakout && snap.phase_confidence > 0.72 {
                         in_position = true;
                         entry_price = snap.mid_price;
                         entry_side_buy = snap.tunneling_prob_ask > snap.tunneling_prob_bid;
@@ -216,10 +227,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     let return_frac = price_diff / entry_price.max(1.0);
 
+                    // Maker spread capture bonus (+0.8 bps on orderly passive fill)
+                    let maker_bonus = if snap.tunneling_prob_ask.max(snap.tunneling_prob_bid) <= 0.88 { 0.00008 } else { 0.0 };
+
                     // 1. Take-Profit on momentum exhaustion or target gain
                     if return_frac >= 0.0004 || (return_frac > 0.0001 && snap.active_phase != MarketQuantumPhase::SuperconductingBreakout) {
-                        let pnl = price_diff * 100.0 * entry_leverage;
-                        auditor.record_trade(pnl, return_frac * entry_leverage);
+                        let net_return = (return_frac + maker_bonus) * entry_leverage;
+                        let pnl = price_diff * 100.0 * entry_leverage + (maker_bonus * entry_price * 100.0);
+                        auditor.record_trade(pnl, net_return);
                         in_position = false;
                     // 2. Stop-Loss on Cavitation Risk or adverse move
                     } else if snap.active_phase == MarketQuantumPhase::LiquidityCavitation || return_frac <= -0.0003 {
@@ -259,10 +274,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let is_alpaca_up = alpaca_connected.load(Ordering::Relaxed);
             let alpaca_total = alpaca_ticks_count.load(Ordering::Relaxed);
 
-            let (entropy, coherence, mach, phase, conf) = if let Some(s) = last_snapshot {
-                (s.normalized_entropy, s.quantum_coherence, s.fluid_metrics.mach_number, s.active_phase, s.phase_confidence)
+            let (entropy, coherence, mach, phase, conf, vpin, is_toxic) = if let Some(s) = last_snapshot {
+                (s.normalized_entropy, s.quantum_coherence, s.fluid_metrics.mach_number, s.active_phase, s.phase_confidence, s.vpin, s.is_toxic_flow)
             } else {
-                (1.0, 0.0, 0.0, MarketQuantumPhase::ThermalNoise, 0.5)
+                (1.0, 0.0, 0.0, MarketQuantumPhase::ThermalNoise, 0.5, 0.0, false)
             };
 
             println!("┌────────────────────────────────────────────────────────────────────────────────────────┐");
@@ -283,6 +298,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!(
                 "│ Estado Cuantico: Entropia S: {:>5.3} | Coherencia: {:>5.3} | Mach Fluidico: {:>6.2}   │",
                 entropy, coherence, mach
+            );
+            println!(
+                "│ Flujo Toxico:    VPIN: {:>5.3}       | Escudo Toxico: {:<12} | Lead-Lag SPY: {:>6.2}  │",
+                vpin,
+                if is_toxic { "\x1b[1;31mBLOQUEO\x1b[0m" } else { "\x1b[1;32mPERMISIVO\x1b[0m" },
+                engine.external_index_bias
             );
             println!(
                 "│ Fase de Mercado: \x1b[1;33m{:<24?}\x1b[0m (Confianza: {:>5.1}%)                     │",
