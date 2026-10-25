@@ -7,9 +7,11 @@ license.workspace = true
 [dependencies]
 quantum-engine = { path = "../quantum-engine" }
 market-microstructure = { path = "../market-microstructure" }
+market-simulator = { path = "../market-simulator" }
 
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

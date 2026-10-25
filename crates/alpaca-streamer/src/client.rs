@@ -57,6 +57,20 @@ impl AlpacaStreamer {
     where
         F: FnMut(&QuantumAnalyticsSnapshot),
     {
+        self.stream_with_symbol(symbols, |_sym, snap| on_snapshot(snap)).await
+    }
+
+    /// Connects to Alpaca, authenticates, subscribes to symbols, and streams providing the symbol string with each snapshot.
+    pub async fn stream_with_symbol<F>(
+        &mut self,
+        symbols: Vec<&str>,
+        mut on_snapshot: F,
+    ) -> Result<(), Box<dyn Error>>
+    where
+        F: FnMut(&str, &QuantumAnalyticsSnapshot),
+    {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
         let url = self.websocket_url();
         println!("[AlpacaStreamer] Connecting to {}", url);
 
@@ -81,9 +95,9 @@ impl AlpacaStreamer {
             },
             AlpacaAuth::OAuthToken(token) => AuthMessage {
                 action: "auth",
-                key: None,
-                secret: None,
-                token: Some(token),
+                key: Some("oauth"),
+                secret: Some(token.as_str()),
+                token: None,
             },
         };
         let auth_json = serde_json::to_string(&auth_msg)?;
@@ -128,7 +142,7 @@ impl AlpacaStreamer {
                             AlpacaStreamMessage::Quote(q) => {
                                 let quote = q.to_microstructure_quote(current_time_ns);
                                 if let Some(snap) = self.engine.on_quote(quote) {
-                                    on_snapshot(&snap);
+                                    on_snapshot(&q.symbol, &snap);
                                 }
                             }
                             AlpacaStreamMessage::Trade(t) => {
