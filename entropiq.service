@@ -1,0 +1,18 @@
+[Unit]
+Description=Entropiq Quantum Microstructure Trading Daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/omicron/Documentos/modelopredictivo
+ExecStart=/home/omicron/Documentos/modelopredictivo/target/release/examples/live_stream_demo
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/omicron/Documentos/modelopredictivo/.env
+
+# Security & Sandboxing
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

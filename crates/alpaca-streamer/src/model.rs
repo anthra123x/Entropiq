@@ -4,8 +4,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize)]
 pub struct AuthMessage<'a> {
     pub action: &'static str,
-    pub key: &'a str,
-    pub secret: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<&'a str>,
 }
 
 #[derive(Debug, Serialize)]

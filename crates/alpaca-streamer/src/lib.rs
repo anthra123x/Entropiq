@@ -1,7 +1,7 @@
 pub mod client;
 pub mod model;
 
-pub use client::{AlpacaDataFeed, AlpacaStreamer};
+pub use client::{AlpacaAuth, AlpacaDataFeed, AlpacaStreamer};
 pub use model::{AlpacaQuote, AlpacaStreamMessage, AlpacaTrade};
 
 #[cfg(test)]

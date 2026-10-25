@@ -11,18 +11,30 @@ pub enum AlpacaDataFeed {
     Sip, // Institutional full CTA/UTP SIP feed
 }
 
+#[derive(Debug, Clone)]
+pub enum AlpacaAuth {
+    KeySecret { key: String, secret: String },
+    OAuthToken(String),
+}
+
 pub struct AlpacaStreamer {
-    api_key: String,
-    api_secret: String,
+    auth: AlpacaAuth,
     feed: AlpacaDataFeed,
     engine: QuantumMarketEngine,
 }
 
 impl AlpacaStreamer {
-    pub fn new(api_key: String, api_secret: String, feed: AlpacaDataFeed, tick_size: f64) -> Self {
+    pub fn with_key_secret(key: String, secret: String, feed: AlpacaDataFeed, tick_size: f64) -> Self {
         Self {
-            api_key,
-            api_secret,
+            auth: AlpacaAuth::KeySecret { key, secret },
+            feed,
+            engine: QuantumMarketEngine::new(tick_size),
+        }
+    }
+
+    pub fn with_oauth_token(token: String, feed: AlpacaDataFeed, tick_size: f64) -> Self {
+        Self {
+            auth: AlpacaAuth::OAuthToken(token),
             feed,
             engine: QuantumMarketEngine::new(tick_size),
         }
@@ -59,11 +71,20 @@ impl AlpacaStreamer {
             println!("[AlpacaStreamer] Server greeting: {}", text);
         }
 
-        // 2. Send Authentication
-        let auth_msg = AuthMessage {
-            action: "auth",
-            key: &self.api_key,
-            secret: &self.api_secret,
+        // 2. Send Authentication (Key/Secret or OAuth Bearer Token)
+        let auth_msg = match &self.auth {
+            AlpacaAuth::KeySecret { key, secret } => AuthMessage {
+                action: "auth",
+                key: Some(key),
+                secret: Some(secret),
+                token: None,
+            },
+            AlpacaAuth::OAuthToken(token) => AuthMessage {
+                action: "auth",
+                key: None,
+                secret: None,
+                token: Some(token),
+            },
         };
         let auth_json = serde_json::to_string(&auth_msg)?;
         write.send(Message::Text(auth_json)).await?;
