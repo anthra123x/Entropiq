@@ -47,7 +47,8 @@ Entropiq/
 │   │   └── binary_disk.rs                  # Page-aligned binary disk recorder (625 MB/s)
 │   └── alpaca-streamer/                    # Asynchronous real-time market data ingestion
 │       ├── model.rs                        # Alpaca Market Data v2 message models
-│       └── client.rs                       # Asynchronous WebSocket client with TLS
+│       ├── client.rs                       # Asynchronous WebSocket client with TLS (OAuth & Key/Secret)
+│       └── bin/supervisor.rs               # Production real-time telemetry supervisor and auditor
 ```
 
 ---
@@ -160,8 +161,11 @@ cargo run --release --example quantum_backtest_audit -p quantum-engine
 # Benchmark 4: Disk Persistence and Streaming I/O
 cargo run --release --example disk_persistence_benchmark -p quantum-engine
 
-# Live Stream Demo (requires ALPACA_API_KEY and ALPACA_API_SECRET)
+# Live Stream Demo (requires ALPACA_ACCESS_TOKEN or API Keys in .env)
 cargo run --release --example live_stream_demo -p alpaca-streamer
+
+# Production Real-Time Performance Supervisor (Telemetry, O(1) Memory & Dynamic Kelly)
+cargo run --release --bin supervisor -p alpaca-streamer
 ```
 
 ---
