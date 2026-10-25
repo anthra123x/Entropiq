@@ -148,6 +148,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Sliding window latencies for percentile estimation
     let mut recent_latencies_ns: Vec<u64> = Vec::with_capacity(20_000);
 
+    let mut in_position = false;
+    let mut entry_price = 0.0;
+    let mut entry_side_buy = true;
+    let mut entry_leverage = 1.0;
+
     let mut last_report_time = Instant::now();
     let mut last_report_ticks: u64 = 0;
     let mut interval = tokio::time::interval(Duration::from_millis(1));
@@ -194,12 +199,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 recent_latencies_ns.push(elapsed_ns);
             }
 
-            // Simulated trading logic based on phase transitions
+            // Dynamic execution with stateful position management, Kelly leverage, and Decoherence stop
             if let Some(snap) = snap_opt {
-                if snap.active_phase == MarketQuantumPhase::SuperconductingBreakout && snap.phase_confidence > 0.85 {
-                    auditor.record_trade(15.0, 0.0015);
-                } else if snap.active_phase == MarketQuantumPhase::LiquidityCavitation {
-                    auditor.record_trade(-8.0, -0.0008);
+                if !in_position {
+                    if snap.active_phase == MarketQuantumPhase::SuperconductingBreakout && snap.phase_confidence > 0.75 {
+                        in_position = true;
+                        entry_price = snap.mid_price;
+                        entry_side_buy = snap.tunneling_prob_ask > snap.tunneling_prob_bid;
+                        entry_leverage = auditor.kelly_leverage(snap.quantum_coherence);
+                    }
+                } else {
+                    let price_diff = if entry_side_buy {
+                        snap.mid_price - entry_price
+                    } else {
+                        entry_price - snap.mid_price
+                    };
+                    let return_frac = price_diff / entry_price.max(1.0);
+
+                    // 1. Take-Profit on momentum exhaustion or target gain
+                    if return_frac >= 0.0004 || (return_frac > 0.0001 && snap.active_phase != MarketQuantumPhase::SuperconductingBreakout) {
+                        let pnl = price_diff * 100.0 * entry_leverage;
+                        auditor.record_trade(pnl, return_frac * entry_leverage);
+                        in_position = false;
+                    // 2. Stop-Loss on Cavitation Risk or adverse move
+                    } else if snap.active_phase == MarketQuantumPhase::LiquidityCavitation || return_frac <= -0.0003 {
+                        let pnl = price_diff * 100.0 * entry_leverage;
+                        auditor.record_trade(pnl, return_frac * entry_leverage);
+                        in_position = false;
+                    }
                 }
                 last_snapshot = Some(snap);
             }
@@ -262,11 +289,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 phase, conf * 100.0
             );
             println!(
-                "│ Auditor PnL:     Equity: ${:<10.2} | Sharpe: {:>5.2} | WinRate: {:>5.1}% | MaxDD: {:>5.2}% │",
+                "│ Auditor PnL:     Equity: ${:<10.2} | Sharpe: {:>5.2} | WinRate: {:>5.1}% | Kelly: {:>4.2}x │",
                 auditor.current_equity,
                 auditor.sharpe_ratio(252.0),
                 auditor.win_rate() * 100.0,
-                auditor.max_drawdown * 100.0
+                auditor.kelly_leverage(coherence)
+            );
+            println!(
+                "│ Metricas Riesgo: ProfitFactor: {:>5.2} | MaxDD: {:>5.2}% | Trades: {:<14}           │",
+                auditor.profit_factor(),
+                auditor.max_drawdown * 100.0,
+                auditor.total_trades
             );
             println!("└────────────────────────────────────────────────────────────────────────────────────────┘\n");
 

@@ -42,9 +42,21 @@ impl PhaseClassifier {
         }
 
         // 3. Superconducting Breakout: active kinetic penetration through liquidity wall
+        // High win-rate criteria: Tunneling > 0.75, Entropy contracting (dS/dt <= 0.05), and Directional OFI alignment
         let max_tunnel = snapshot.tunneling_prob_ask.max(snapshot.tunneling_prob_bid);
-        if max_tunnel > 0.70 && snapshot.fluid_metrics.flow_velocity > 0.05 {
-            let conf = max_tunnel.clamp(0.60, 0.99);
+        let ofi_aligned = if snapshot.tunneling_prob_ask > snapshot.tunneling_prob_bid {
+            snapshot.ofi_acceleration >= -1e-6
+        } else {
+            snapshot.ofi_acceleration <= 1e-6
+        };
+
+        if max_tunnel > 0.72
+            && snapshot.normalized_entropy < 0.88
+            && snapshot.entropy_production_rate <= 0.01
+            && ofi_aligned
+            && snapshot.fluid_metrics.flow_velocity > 0.005
+        {
+            let conf = max_tunnel.clamp(0.70, 0.99);
             return (MarketQuantumPhase::SuperconductingBreakout, conf);
         }
 

@@ -11,6 +11,8 @@ pub struct QuantumAnalyticsSnapshot {
     pub micro_price: f64,
     pub von_neumann_entropy: f64,
     pub normalized_entropy: f64,
+    pub entropy_production_rate: f64,
+    pub ofi_acceleration: f64,
     pub quantum_coherence: f64,
     pub tunneling_prob_ask: f64,
     pub tunneling_prob_bid: f64,
@@ -27,6 +29,7 @@ pub struct QuantumMarketEngine {
     pub tracker: MarketTracker,
     pub density_matrix: DensityMatrix<2>,
     pub depth_psi: [Complex64; 8],
+    pub prev_normalized_entropy: f64,
     pub last_timestamp_ns: u64,
 }
 
@@ -48,6 +51,7 @@ impl QuantumMarketEngine {
             tracker: MarketTracker::new(tick_size),
             density_matrix: dm,
             depth_psi,
+            prev_normalized_entropy: 1.0,
             last_timestamp_ns: 0,
         }
     }
@@ -132,13 +136,17 @@ impl QuantumMarketEngine {
     }
 
     /// Computes full quantum physical, hydrodynamic, and phase-transition state snapshot.
-    pub fn compute_snapshot(&self, dt_sec: f64) -> Option<QuantumAnalyticsSnapshot> {
+    pub fn compute_snapshot(&mut self, dt_sec: f64) -> Option<QuantumAnalyticsSnapshot> {
         let quote = self.tracker.current_quote?;
 
         // 1. Quantum state observables from Lindblad-evolved density matrix
         let vn_entropy = self.density_matrix.von_neumann_entropy();
         let norm_entropy = self.density_matrix.normalized_entropy();
         let coherence = self.density_matrix.quantum_coherence();
+
+        let entropy_rate = norm_entropy - self.prev_normalized_entropy;
+        self.prev_normalized_entropy = norm_entropy;
+        let ofi_accel = self.tracker.ofi_acceleration;
 
         // 2. Quantum Tunneling against Bid & Ask liquidity barriers
         let kinetic_energy = self.tracker.kinetic_energy();
@@ -182,6 +190,8 @@ impl QuantumMarketEngine {
             micro_price: quote.micro_price(),
             von_neumann_entropy: vn_entropy,
             normalized_entropy: norm_entropy,
+            entropy_production_rate: entropy_rate,
+            ofi_acceleration: ofi_accel,
             quantum_coherence: coherence,
             tunneling_prob_ask: t_ask,
             tunneling_prob_bid: t_bid,

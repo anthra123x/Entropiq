@@ -51,7 +51,12 @@ impl PortfolioAuditor {
             self.sum_losing_returns += return_fraction.abs();
         }
 
-        self.returns_history.push(return_fraction);
+        if self.returns_history.len() < 10_000 {
+            self.returns_history.push(return_fraction);
+        } else {
+            let idx = (self.total_trades as usize) % 10_000;
+            self.returns_history[idx] = return_fraction;
+        }
     }
 
     /// Win Rate in range [0.0, 1.0]
@@ -105,5 +110,20 @@ impl PortfolioAuditor {
     /// Calmar Ratio: CAGR / Max Drawdown
     pub fn calmar_ratio(&self, cagr: f64) -> f64 {
         if self.max_drawdown <= 1e-6 { 99.99 } else { cagr / self.max_drawdown }
+    }
+
+    /// Dynamic Fractional Kelly Leverage: f* = ((b * p - q) / b) * Coherence
+    /// Maximizes capital geometric growth rate while scaling down in low-coherence states.
+    pub fn kelly_leverage(&self, coherence: f64) -> f64 {
+        let p = self.win_rate();
+        if self.total_trades < 5 || p <= 0.50 {
+            return 1.0;
+        }
+        let avg_win = self.avg_win_return().max(1e-5);
+        let avg_loss = self.avg_loss_return().max(1e-5);
+        let b = avg_win / avg_loss;
+        let q = 1.0 - p;
+        let f_star = (p * b - q) / b;
+        (f_star.max(0.1) * 0.5 * (0.5 + 0.5 * coherence)).clamp(0.2, 3.0)
     }
 }
