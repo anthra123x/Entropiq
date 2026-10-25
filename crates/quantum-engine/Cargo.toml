@@ -1,0 +1,12 @@
+[package]
+name = "quantum-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+quantum-core = { path = "../quantum-core" }
+market-microstructure = { path = "../market-microstructure" }
+
+[dev-dependencies]
+market-simulator = { path = "../market-simulator" }

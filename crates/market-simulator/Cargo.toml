@@ -1,0 +1,8 @@
+[package]
+name = "market-simulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+market-microstructure = { path = "../market-microstructure" }

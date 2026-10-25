@@ -1,0 +1,20 @@
+# Rust build artifacts
+/target
+Cargo.lock
+
+# Environment variables & secrets (NEVER commit API keys)
+.env
+.env.*
+!.env.example
+
+# Market binary data & local dumps
+*.bin
+*.dat
+*.pcap
+/data
+
+# IDE and OS files
+.DS_Store
+.vscode/
+.idea/
+*.swp
