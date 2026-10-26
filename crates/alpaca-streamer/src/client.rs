@@ -6,9 +6,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AlpacaDataFeed {
     Iex, // Free tier IEX feed
     Sip, // Institutional full CTA/UTP SIP feed
+    Crypto, // 24/7/365 US Crypto feed (BTC/USD, ETH/USD, etc.)
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +47,7 @@ impl AlpacaStreamer {
         match self.feed {
             AlpacaDataFeed::Iex => "wss://stream.data.alpaca.markets/v2/iex",
             AlpacaDataFeed::Sip => "wss://stream.data.alpaca.markets/v2/sip",
+            AlpacaDataFeed::Crypto => "wss://stream.data.alpaca.markets/v1beta3/crypto/us",
         }
     }
 

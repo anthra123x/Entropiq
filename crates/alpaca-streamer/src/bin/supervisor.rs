@@ -39,6 +39,42 @@ fn get_memory_rss_mb() -> f64 {
     0.0
 }
 
+fn execute_alpaca_paper_order(token: Arc<String>, symbol: String, side: &'static str, notional_usd: f64) {
+    if token.is_empty() {
+        return;
+    }
+    tokio::task::spawn_blocking(move || {
+        let payload = format!(
+            r#"{{"symbol":"{}","notional":"{:.2}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
+            symbol, notional_usd, side
+        );
+        let output = std::process::Command::new("curl")
+            .arg("-s")
+            .arg("-X")
+            .arg("POST")
+            .arg("https://paper-api.alpaca.markets/v2/orders")
+            .arg("-H")
+            .arg(format!("Authorization: Bearer {}", *token))
+            .arg("-H")
+            .arg("Content-Type: application/json")
+            .arg("-d")
+            .arg(payload)
+            .output();
+
+        if let Ok(out) = output {
+            let res = String::from_utf8_lossy(&out.stdout);
+            if res.contains(r#""id""#) {
+                println!(
+                    " \x1b[1;35m[ALPACA BROKER ORDER]\x1b[0m Transaccion ejecutada en Broker: {} {} por ${:.2} USD",
+                    side.to_uppercase(),
+                    symbol,
+                    notional_usd
+                );
+            }
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("==========================================================================================");
@@ -62,13 +98,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|| env_file.get("ALPACA_API_SECRET").cloned())
         .unwrap_or_default();
 
-    let live_symbols = vec![
-        "SPY", "QQQ", "AAPL", "NVDA", "TSLA", "AMD", "MSFT", "AMZN", "META", "GOOGL",
-    ];
+    let feed_choice = env::var("ALPACA_FEED")
+        .ok()
+        .or_else(|| env_file.get("ALPACA_FEED").cloned())
+        .unwrap_or_else(|| "crypto".to_string());
+
+    let (feed, live_symbols, tick_size) = if feed_choice.to_lowercase() == "equities" {
+        println!("[+] Canal de Mercado: Alpaca Equities IEX (Top 10 Stocks)");
+        (
+            AlpacaDataFeed::Iex,
+            vec!["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "AMD", "MSFT", "AMZN", "META", "GOOGL"],
+            0.01,
+        )
+    } else {
+        println!("[+] Canal de Mercado: Alpaca Cripto 24/7/365 (BTC/USD, ETH/USD, SOL/USD)");
+        (AlpacaDataFeed::Crypto, vec!["BTC/USD", "ETH/USD", "SOL/USD"], 0.50)
+    };
 
     let streamer_auth = if !oauth_token.is_empty() {
         println!("[+] Modo de Autenticacion: Alpaca OAuth Token (Activo)");
-        Some(AlpacaAuth::OAuthToken(oauth_token))
+        Some(AlpacaAuth::OAuthToken(oauth_token.clone()))
     } else if !api_key.is_empty() && !api_secret.is_empty() {
         println!("[+] Modo de Autenticacion: Alpaca API Key / Secret (Activo)");
         Some(AlpacaAuth::KeySecret {
@@ -100,9 +149,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         tokio::spawn(async move {
             let mut streamer = match auth {
-                AlpacaAuth::OAuthToken(t) => AlpacaStreamer::with_oauth_token(t, AlpacaDataFeed::Iex, 0.01),
+                AlpacaAuth::OAuthToken(t) => AlpacaStreamer::with_oauth_token(t, feed, tick_size),
                 AlpacaAuth::KeySecret { key, secret } => {
-                    AlpacaStreamer::with_key_secret(key, secret, AlpacaDataFeed::Iex, 0.01)
+                    AlpacaStreamer::with_key_secret(key, secret, feed, tick_size)
                 }
             };
 
@@ -155,6 +204,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut entry_side_buy = true;
     let mut entry_leverage = 1.0;
 
+    let token_arc = Arc::new(oauth_token.clone());
+    let mut last_broker_order_time = Instant::now() - Duration::from_secs(60);
+
     let mut last_report_time = Instant::now();
     let mut last_report_ticks: u64 = 0;
     let mut interval = tokio::time::interval(Duration::from_millis(1));
@@ -166,12 +218,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Step A: Check for any real Alpaca tick arriving from WebSocket
         while let Ok((sym, mid, micro, entropy, coherence, phase)) = live_rx.try_recv() {
             println!(
-                " \x1b[1;32m[ALPACA LIVE]\x1b[0m {:<5} | Mid: ${:<7.2} | Micro: ${:<7.2} | S: {:.3} | Coher: {:.3} | Fase: {:?}",
+                " \x1b[1;32m[ALPACA LIVE]\x1b[0m {:<7} | Mid: ${:<9.2} | Micro: ${:<9.2} | S: {:.3} | Coher: {:.3} | Fase: {:?}",
                 sym, mid, micro, entropy, coherence, phase
             );
-            if sym == "SPY" {
+            if sym == "SPY" || sym == "BTC/USD" {
                 let bias = ((micro - mid) / (mid * 0.0001)).clamp(-1.0, 1.0);
                 engine.set_external_index_bias(bias);
+            }
+
+            // Real-time live trading execution on Alpaca Broker (paper account)
+            if last_broker_order_time.elapsed() >= Duration::from_secs(10) {
+                if phase == MarketQuantumPhase::SuperconductingBreakout && coherence > 0.45 {
+                    let side = if micro >= mid { "buy" } else { "sell" };
+                    execute_alpaca_paper_order(token_arc.clone(), sym.clone(), side, 25.0);
+                    last_broker_order_time = Instant::now();
+                } else if phase == MarketQuantumPhase::LiquidityCavitation && coherence < 0.15 {
+                    let side = if micro < mid { "buy" } else { "sell" };
+                    execute_alpaca_paper_order(token_arc.clone(), sym.clone(), side, 15.0);
+                    last_broker_order_time = Instant::now();
+                }
             }
         }
 
