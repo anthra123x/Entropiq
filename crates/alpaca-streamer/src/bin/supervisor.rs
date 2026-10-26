@@ -39,6 +39,16 @@ fn get_memory_rss_mb() -> f64 {
     0.0
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct LiveBrokerPosition {
+    symbol: String,
+    side_buy: bool,
+    entry_price: f64,
+    notional: f64,
+    entry_time: Instant,
+}
+
 fn execute_alpaca_paper_order(token: Arc<String>, symbol: String, side: &'static str, notional_usd: f64) {
     if token.is_empty() {
         return;
@@ -205,7 +215,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut entry_leverage = 1.0;
 
     let token_arc = Arc::new(oauth_token.clone());
-    let mut last_broker_order_time = Instant::now() - Duration::from_secs(60);
+    let mut live_positions: HashMap<String, LiveBrokerPosition> = HashMap::new();
+    let mut last_broker_close_time: HashMap<String, Instant> = HashMap::new();
 
     let mut last_report_time = Instant::now();
     let mut last_report_ticks: u64 = 0;
@@ -226,16 +237,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.set_external_index_bias(bias);
             }
 
-            // Real-time live trading execution on Alpaca Broker (paper account)
-            if last_broker_order_time.elapsed() >= Duration::from_secs(10) {
-                if phase == MarketQuantumPhase::SuperconductingBreakout && coherence > 0.45 {
-                    let side = if micro >= mid { "buy" } else { "sell" };
-                    execute_alpaca_paper_order(token_arc.clone(), sym.clone(), side, 25.0);
-                    last_broker_order_time = Instant::now();
-                } else if phase == MarketQuantumPhase::LiquidityCavitation && coherence < 0.15 {
-                    let side = if micro < mid { "buy" } else { "sell" };
-                    execute_alpaca_paper_order(token_arc.clone(), sym.clone(), side, 15.0);
-                    last_broker_order_time = Instant::now();
+            // Real-time stateful live trading execution on Alpaca Broker (paper account)
+            if let Some(pos) = live_positions.get(&sym).cloned() {
+                // Monitor active open position for Take-Profit or Stop-Loss
+                let price_diff = if pos.side_buy {
+                    mid - pos.entry_price
+                } else {
+                    pos.entry_price - mid
+                };
+                let return_frac = price_diff / pos.entry_price.max(1.0);
+
+                // 1. Take-Profit (+0.35% target or +0.18% with momentum exhaustion)
+                if return_frac >= 0.0035 || (return_frac >= 0.0018 && coherence < 0.25) {
+                    let exit_side = if pos.side_buy { "sell" } else { "buy" };
+                    execute_alpaca_paper_order(token_arc.clone(), sym.clone(), exit_side, pos.notional);
+                    let profit_usd = return_frac * pos.notional;
+                    println!(
+                        " \x1b[1;32m[ALPACA TAKE-PROFIT]\x1b[0m Posicion cerrada en {}: +{:.2}% | Ganancia: +${:.3} USD",
+                        sym, return_frac * 100.0, profit_usd
+                    );
+                    live_positions.remove(&sym);
+                    last_broker_close_time.insert(sym.clone(), Instant::now());
+                // 2. Stop-Loss (-0.15% max adverse risk or -0.05% with adverse liquidity cavitation)
+                } else if return_frac <= -0.0015 || (phase == MarketQuantumPhase::LiquidityCavitation && return_frac <= -0.0005) {
+                    let exit_side = if pos.side_buy { "sell" } else { "buy" };
+                    execute_alpaca_paper_order(token_arc.clone(), sym.clone(), exit_side, pos.notional);
+                    let loss_usd = (-return_frac) * pos.notional;
+                    println!(
+                        " \x1b[1;31m[ALPACA STOP-LOSS]\x1b[0m Riesgo cortado en {}: {:.2}% | Perdida: -${:.3} USD",
+                        sym, return_frac * 100.0, loss_usd
+                    );
+                    live_positions.remove(&sym);
+                    last_broker_close_time.insert(sym.clone(), Instant::now());
+                }
+            } else {
+                // No open position in this asset -> evaluate strict quantum entry criteria
+                let can_enter = last_broker_close_time
+                    .get(&sym)
+                    .map(|t| t.elapsed() >= Duration::from_secs(60))
+                    .unwrap_or(true);
+
+                if can_enter && phase == MarketQuantumPhase::SuperconductingBreakout && coherence >= 0.70 && entropy <= 0.75 {
+                    let side_buy = micro >= mid;
+                    let order_side = if side_buy { "buy" } else { "sell" };
+                    let notional = 25.0; // conservative $25 position size
+                    execute_alpaca_paper_order(token_arc.clone(), sym.clone(), order_side, notional);
+                    println!(
+                        " \x1b[1;36m[ALPACA POSITION OPENED]\x1b[0m Entrada {} en {} a ${:.2} | Coherencia: {:.3} | S: {:.3}",
+                        order_side.to_uppercase(), sym, mid, coherence, entropy
+                    );
+                    live_positions.insert(
+                        sym.clone(),
+                        LiveBrokerPosition {
+                            symbol: sym.clone(),
+                            side_buy,
+                            entry_price: mid,
+                            notional,
+                            entry_time: Instant::now(),
+                        },
+                    );
                 }
             }
         }
@@ -280,7 +340,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Dynamic execution with Maker/Taker spread capture, Kelly leverage, and Decoherence stop
             if let Some(snap) = snap_opt {
                 if !in_position {
-                    if snap.active_phase == MarketQuantumPhase::SuperconductingBreakout && snap.phase_confidence > 0.72 {
+                    if snap.active_phase == MarketQuantumPhase::SuperconductingBreakout && snap.quantum_coherence >= 0.70 && snap.phase_confidence > 0.78 {
                         in_position = true;
                         entry_price = snap.mid_price;
                         entry_side_buy = snap.tunneling_prob_ask > snap.tunneling_prob_bid;
@@ -297,14 +357,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Maker spread capture bonus (+0.8 bps on orderly passive fill)
                     let maker_bonus = if snap.tunneling_prob_ask.max(snap.tunneling_prob_bid) <= 0.88 { 0.00008 } else { 0.0 };
 
-                    // 1. Take-Profit on momentum exhaustion or target gain
-                    if return_frac >= 0.0004 || (return_frac > 0.0001 && snap.active_phase != MarketQuantumPhase::SuperconductingBreakout) {
+                    // 1. Take-Profit on momentum exhaustion or target gain (+0.35%)
+                    if return_frac >= 0.0035 || (return_frac >= 0.0018 && snap.active_phase != MarketQuantumPhase::SuperconductingBreakout) {
                         let net_return = (return_frac + maker_bonus) * entry_leverage;
                         let pnl = price_diff * 100.0 * entry_leverage + (maker_bonus * entry_price * 100.0);
                         auditor.record_trade(pnl, net_return);
                         in_position = false;
-                    // 2. Stop-Loss on Cavitation Risk or adverse move
-                    } else if snap.active_phase == MarketQuantumPhase::LiquidityCavitation || return_frac <= -0.0003 {
+                    // 2. Stop-Loss on Cavitation Risk or adverse move (-0.15%)
+                    } else if (snap.active_phase == MarketQuantumPhase::LiquidityCavitation && return_frac < -0.0005) || return_frac <= -0.0015 {
                         let pnl = price_diff * 100.0 * entry_leverage;
                         auditor.record_trade(pnl, return_frac * entry_leverage);
                         in_position = false;
