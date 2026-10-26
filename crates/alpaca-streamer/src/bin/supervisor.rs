@@ -62,7 +62,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|| env_file.get("ALPACA_API_SECRET").cloned())
         .unwrap_or_default();
 
-    let live_symbols = vec!["SPY", "AAPL", "NVDA"];
+    let live_symbols = vec![
+        "SPY", "QQQ", "AAPL", "NVDA", "TSLA", "AMD", "MSFT", "AMZN", "META", "GOOGL",
+    ];
 
     let streamer_auth = if !oauth_token.is_empty() {
         println!("[+] Modo de Autenticacion: Alpaca OAuth Token (Activo)");

@@ -136,29 +136,70 @@ impl AlpacaStreamer {
                     .as_nanos() as u64;
 
                 // Alpaca sends an array of messages per frame: [{"T":"q", ...}, {"T":"t", ...}]
-                if let Ok(messages) = serde_json::from_str::<Vec<AlpacaStreamMessage>>(&text) {
-                    for m in messages {
-                        match m {
-                            AlpacaStreamMessage::Quote(q) => {
-                                let quote = q.to_microstructure_quote(current_time_ns);
-                                if let Some(snap) = self.engine.on_quote(quote) {
-                                    on_snapshot(&q.symbol, &snap);
+                let parsed_messages: Result<Vec<AlpacaStreamMessage>, _> = serde_json::from_str(&text);
+                match parsed_messages {
+                    Ok(messages) => {
+                        for m in messages {
+                            match m {
+                                AlpacaStreamMessage::Quote(q) => {
+                                    let quote = q.to_microstructure_quote(current_time_ns);
+                                    if let Some(snap) = self.engine.on_quote(quote) {
+                                        on_snapshot(&q.symbol, &snap);
+                                    }
                                 }
+                                AlpacaStreamMessage::Trade(t) => {
+                                    let mid = self
+                                        .engine
+                                        .tracker
+                                        .current_quote
+                                        .map(|q| q.mid_price())
+                                        .unwrap_or(t.price);
+                                    let trade = t.to_microstructure_trade(current_time_ns, mid);
+                                    if let Some(snap) = self.engine.on_trade(trade) {
+                                        on_snapshot(&t.symbol, &snap);
+                                    }
+                                }
+                                AlpacaStreamMessage::Subscription { trades, quotes } => {
+                                    println!("[AlpacaStreamer] Suscripcion confirmada: trades={:?}, quotes={:?}", trades, quotes);
+                                }
+                                AlpacaStreamMessage::Error { msg, code } => {
+                                    eprintln!("[AlpacaStreamer] Error from Alpaca (code {}): {}", code, msg);
+                                }
+                                _ => {}
                             }
-                            AlpacaStreamMessage::Trade(t) => {
-                                let mid = self
-                                    .engine
-                                    .tracker
-                                    .current_quote
-                                    .map(|q| q.mid_price())
-                                    .unwrap_or(t.price);
-                                let trade = t.to_microstructure_trade(current_time_ns, mid);
-                                self.engine.on_trade(trade);
+                        }
+                    }
+                    Err(e) => {
+                        if let Ok(single) = serde_json::from_str::<AlpacaStreamMessage>(&text) {
+                            match single {
+                                AlpacaStreamMessage::Quote(q) => {
+                                    let quote = q.to_microstructure_quote(current_time_ns);
+                                    if let Some(snap) = self.engine.on_quote(quote) {
+                                        on_snapshot(&q.symbol, &snap);
+                                    }
+                                }
+                                AlpacaStreamMessage::Trade(t) => {
+                                    let mid = self
+                                        .engine
+                                        .tracker
+                                        .current_quote
+                                        .map(|q| q.mid_price())
+                                        .unwrap_or(t.price);
+                                    let trade = t.to_microstructure_trade(current_time_ns, mid);
+                                    if let Some(snap) = self.engine.on_trade(trade) {
+                                        on_snapshot(&t.symbol, &snap);
+                                    }
+                                }
+                                AlpacaStreamMessage::Subscription { trades, quotes } => {
+                                    println!("[AlpacaStreamer] Suscripcion confirmada: trades={:?}, quotes={:?}", trades, quotes);
+                                }
+                                AlpacaStreamMessage::Error { msg, code } => {
+                                    eprintln!("[AlpacaStreamer] Error from Alpaca (code {}): {}", code, msg);
+                                }
+                                _ => {}
                             }
-                            AlpacaStreamMessage::Error { msg, code } => {
-                                eprintln!("[AlpacaStreamer] Error from Alpaca (code {}): {}", code, msg);
-                            }
-                            _ => {}
+                        } else {
+                            eprintln!("[AlpacaStreamer] Warning al deserializar: {:?} | Raw: {}", e, text);
                         }
                     }
                 }

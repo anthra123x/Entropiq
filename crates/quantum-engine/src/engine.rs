@@ -118,7 +118,7 @@ impl QuantumMarketEngine {
     }
 
     #[inline(always)]
-    pub fn on_trade(&mut self, trade: Trade) {
+    pub fn on_trade(&mut self, trade: Trade) -> Option<QuantumAnalyticsSnapshot> {
         self.tracker.update_trade(trade);
 
         let total_depth = if let Some(q) = self.tracker.current_quote {
@@ -142,6 +142,8 @@ impl QuantumMarketEngine {
         let target_site = if trade.taker_side == Side::Buy { 4 } else { 3 };
         let impact_phase = Complex64::new(0.0, 0.5).exp();
         self.depth_psi[target_site] = self.depth_psi[target_site] * impact_phase;
+
+        self.compute_snapshot(0.001)
     }
 
     /// Computes full quantum physical, hydrodynamic, and phase-transition state snapshot.

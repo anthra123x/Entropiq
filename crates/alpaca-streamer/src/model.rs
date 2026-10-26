@@ -31,7 +31,9 @@ pub enum AlpacaStreamMessage {
 
     #[serde(rename = "subscription")]
     Subscription {
+        #[serde(default)]
         trades: Vec<String>,
+        #[serde(default)]
         quotes: Vec<String>,
     },
 
@@ -40,6 +42,9 @@ pub enum AlpacaStreamMessage {
 
     #[serde(rename = "t")]
     Trade(AlpacaTrade),
+
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,8 +59,8 @@ pub struct AlpacaQuote {
     pub ask_price: f64,
     #[serde(rename = "as")]
     pub ask_size: f64,
-    #[serde(rename = "t")]
-    pub timestamp: String,
+    #[serde(rename = "t", default)]
+    pub timestamp: Option<String>,
 }
 
 impl AlpacaQuote {
@@ -79,8 +84,8 @@ pub struct AlpacaTrade {
     pub price: f64,
     #[serde(rename = "s")]
     pub size: f64,
-    #[serde(rename = "t")]
-    pub timestamp: String,
+    #[serde(rename = "t", default)]
+    pub timestamp: Option<String>,
 }
 
 impl AlpacaTrade {
