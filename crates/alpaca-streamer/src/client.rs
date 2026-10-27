@@ -127,13 +127,23 @@ impl AlpacaStreamer {
                         }
                     }
 
-                    // 3. Receive Auth Response
+                    // 3. Receive Auth Response and Verify
+                    let mut auth_ok = false;
                     if let Some(msg) = read.next().await {
                         if let Ok(m) = msg {
                             if let Ok(text) = m.into_text() {
                                 println!("[AlpacaStreamer] Auth response: {}", text);
+                                if text.contains(r#""msg":"authenticated""#) || text.contains(r#""msg":"connected""#) || text.contains(r#""T":"success""#) {
+                                    auth_ok = true;
+                                }
                             }
                         }
+                    }
+
+                    if !auth_ok {
+                        eprintln!("[AlpacaStreamer] Autenticacion rechazada por Alpaca. Reintentando en {}s...", retry_delay.as_secs());
+                        tokio::time::sleep(retry_delay).await;
+                        continue;
                     }
 
                     // 4. Send Subscription Request

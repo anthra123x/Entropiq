@@ -25,6 +25,7 @@ pub struct WebDashboardState {
     pub vpin: f64,
     pub toxic_flow: bool,
     pub lead_lag_spy_bias: f64,
+    pub market_open: bool,
     pub broker_account: String,
     pub buying_power: f64,
     pub current_equity: f64,
@@ -58,6 +59,7 @@ impl Default for WebDashboardState {
             vpin: 0.0,
             toxic_flow: false,
             lead_lag_spy_bias: 0.0,
+            market_open: false,
             broker_account: "Sincronizando Alpaca...".to_string(),
             buying_power: 100_000.0,
             current_equity: 100_000.0,
@@ -103,11 +105,11 @@ pub async fn start_web_server(state: Arc<RwLock<WebDashboardState>>, port: u16) 
                             r#"{"status":"ok","engine":"entropiq"}"#.to_string(),
                         )
                     } else if req.starts_with("GET /api/status") {
-                        let data = state_clone.read().unwrap().clone();
+                        let data = state_clone.read().map(|g| g.clone()).unwrap_or_default();
                         let json = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
                         ("HTTP/1.1 200 OK\r\n", "application/json", json)
                     } else {
-                        let data = state_clone.read().unwrap().clone();
+                        let data = state_clone.read().map(|g| g.clone()).unwrap_or_default();
                         let html = render_dashboard_html(&data);
                         ("HTTP/1.1 200 OK\r\n", "text/html; charset=utf-8", html)
                     };
@@ -129,9 +131,15 @@ pub async fn start_web_server(state: Arc<RwLock<WebDashboardState>>, port: u16) 
 /// Generates a modern, responsive, institutional dark-mode terminal dashboard for mobile and desktop.
 fn render_dashboard_html(s: &WebDashboardState) -> String {
     let ws_status_badge = if s.websocket_connected {
-        r#"<span class="badge online">● CONECTADO</span>"#
+        r#"<span class="badge online">● STREAMER ACTIVO</span>"#
     } else {
         r#"<span class="badge offline">○ DESCONECTADO</span>"#
+    };
+
+    let market_badge = if s.market_open {
+        r#"<span class="badge online">● MERCADO ABIERTO</span>"#
+    } else {
+        r#"<span class="badge offline">○ MERCADO CERRADO (9:30 AM EST)</span>"#
     };
 
     let toxic_badge = if s.toxic_flow {
@@ -188,7 +196,10 @@ fn render_dashboard_html(s: &WebDashboardState) -> String {
         <div class="brand">ENTROPIQ SUPERVISOR</div>
         <div style="font-size: 11px; color: var(--muted);">Wall Street IEX &bull; Quantum Microstructure</div>
       </div>
-      <div>{ws_status_badge}</div>
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        {market_badge}
+        {ws_status_badge}
+      </div>
     </header>
 
     <div class="grid">
