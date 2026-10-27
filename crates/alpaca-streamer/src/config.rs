@@ -25,7 +25,7 @@ impl EnvConfig {
         let api_secret = resolve_var("ALPACA_API_SECRET", &file_map).filter(|s| !s.is_empty());
         let feed = resolve_var("ALPACA_FEED", &file_map)
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "equities".to_string());
+            .unwrap_or_else(|| "crypto".to_string());
 
         Self {
             oauth_token,

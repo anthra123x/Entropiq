@@ -250,11 +250,12 @@ impl AlpacaStreamer {
         match msg {
             AlpacaStreamMessage::Quote(q) => {
                 let quote = q.to_microstructure_quote(current_time_ns);
-                let is_macro_index = q.symbol == "SPY" || q.symbol == "QQQ";
+                let is_macro_index = q.symbol == "SPY" || q.symbol == "QQQ" || q.symbol.starts_with("BTC");
                 if is_macro_index {
                     let mid = quote.mid_price();
                     let micro = quote.micro_price();
-                    *macro_index_bias = ((micro - mid) / (mid * 0.00005)).clamp(-1.0, 1.0);
+                    let scale = if q.symbol.starts_with("BTC") { 0.0001 } else { 0.00005 };
+                    *macro_index_bias = ((micro - mid) / (mid * scale)).clamp(-1.0, 1.0);
                 }
 
                 let engine = Self::get_engine_mut(engines, &q.symbol, default_tick_size);
@@ -267,7 +268,7 @@ impl AlpacaStreamer {
                 }
             }
             AlpacaStreamMessage::Trade(t) => {
-                let is_macro_index = t.symbol == "SPY" || t.symbol == "QQQ";
+                let is_macro_index = t.symbol == "SPY" || t.symbol == "QQQ" || t.symbol.starts_with("BTC");
                 let engine = Self::get_engine_mut(engines, &t.symbol, default_tick_size);
                 if !is_macro_index {
                     engine.set_external_index_bias(*macro_index_bias);

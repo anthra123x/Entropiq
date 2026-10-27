@@ -53,9 +53,20 @@ async fn execute_alpaca_paper_order(
         return false;
     }
     let payload = if let Some(qty) = qty_or_notional.0 {
+        let qty_str = if symbol.contains('/') || symbol.contains("USD") {
+            let s = format!("{:.8}", qty);
+            let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+            if trimmed.is_empty() || trimmed == "0" {
+                format!("{:.8}", qty)
+            } else {
+                trimmed.to_string()
+            }
+        } else {
+            format!("{:.2}", qty)
+        };
         format!(
-            r#"{{"symbol":"{}","qty":"{:.2}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
-            symbol, qty, side
+            r#"{{"symbol":"{}","qty":"{}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
+            symbol, qty_str, side
         )
     } else if let Some(notional) = qty_or_notional.1 {
         format!(
@@ -177,6 +188,75 @@ async fn fetch_alpaca_account(
     Some((acc_num, equity, cash, bp))
 }
 
+/// Fetches existing open positions from Alpaca Paper Trading REST API.
+async fn fetch_alpaca_positions(
+    client: &reqwest::Client,
+    auth: &BrokerAuth,
+) -> HashMap<String, LiveBrokerPosition> {
+    let mut positions = HashMap::new();
+    let mut req = client.get("https://paper-api.alpaca.markets/v2/positions");
+    match auth {
+        BrokerAuth::OAuth(token) => {
+            req = req.header("Authorization", format!("Bearer {}", token));
+        }
+        BrokerAuth::KeySecret { key, secret } => {
+            req = req
+                .header("APCA-API-KEY-ID", key.as_str())
+                .header("APCA-API-SECRET-KEY", secret.as_str());
+        }
+        BrokerAuth::None => return positions,
+    }
+
+    if let Ok(resp) = req.send().await {
+        if let Ok(val) = resp.json::<serde_json::Value>().await {
+            if let Some(arr) = val.as_array() {
+                for item in arr {
+                    let sym_raw = item.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+                    let qty: f64 = item
+                        .get("qty")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0.0);
+                    let avg_entry: f64 = item
+                        .get("avg_entry_price")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0.0);
+                    let mkt_val: f64 = item
+                        .get("market_value")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0.0);
+                    let side_str = item.get("side").and_then(|v| v.as_str()).unwrap_or("long");
+                    let side_buy = side_str != "short";
+
+                    let norm_sym = if sym_raw.ends_with("USD") && !sym_raw.contains('/') {
+                        let base = &sym_raw[..sym_raw.len() - 3];
+                        format!("{}/USD", base)
+                    } else {
+                        sym_raw.to_string()
+                    };
+
+                    if qty > 0.0 && avg_entry > 0.0 {
+                        positions.insert(
+                            norm_sym.clone(),
+                            LiveBrokerPosition {
+                                symbol: norm_sym,
+                                side_buy,
+                                entry_price: avg_entry,
+                                qty,
+                                notional: mkt_val.abs(),
+                                entry_time: Instant::now(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+    positions
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("==========================================================================================");
@@ -186,8 +266,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // DEF-01 fix: single source of truth for credentials
     let cfg = EnvConfig::load();
 
-    let (feed, live_symbols, tick_size) = if cfg.feed.to_lowercase() == "crypto" {
-        println!("[+] Canal de Mercado: Alpaca Cripto (Secundario)");
+    let is_crypto = cfg.feed.to_lowercase() == "crypto";
+    let (feed, live_symbols, tick_size) = if is_crypto {
+        println!("[+] Canal de Mercado: Alpaca Cripto 24/7 (BTC/USD, ETH/USD, SOL/USD)");
         (AlpacaDataFeed::Crypto, vec!["BTC/USD", "ETH/USD", "SOL/USD"], 0.50)
     } else {
         println!("[+] Canal de Mercado: Alpaca Equities Wall Street IEX (Top 10 Stocks & ETFs)");
@@ -239,15 +320,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("Simulación Local".to_string(), 100_000.0, 100_000.0)
     };
 
-    // Sync market clock status from Alpaca Clock API
-    let initial_market_open = if !matches!(broker_auth, BrokerAuth::None) {
+    // Sync market clock status (Crypto is 24/7/365, Equities check NYSE clock)
+    let initial_market_open = if is_crypto {
+        true
+    } else if !matches!(broker_auth, BrokerAuth::None) {
         fetch_alpaca_clock(&http_client, &broker_auth).await.unwrap_or(false)
     } else {
         true
     };
     let market_open_flag = Arc::new(AtomicBool::new(initial_market_open));
     if initial_market_open {
-        println!("[+] Estado Wall Street: ABIERTO (Rueda bursatil activa)");
+        if is_crypto {
+            println!("[+] Estado Criptomercado: ABIERTO CONTINUO 24/7/365");
+        } else {
+            println!("[+] Estado Wall Street: ABIERTO (Rueda bursatil activa)");
+        }
     } else {
         println!("[!] Estado Wall Street: CERRADO (Esperando apertura oficial 9:30 AM EST)");
     }
@@ -282,8 +369,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         *lock = (format!("{} (Paper)", acc), eq, bp);
                     }
                 }
-                if let Some(is_open) = fetch_alpaca_clock(&client_bg, &auth_bg).await {
-                    market_open_bg.store(is_open, Ordering::Relaxed);
+                if !is_crypto {
+                    if let Some(is_open) = fetch_alpaca_clock(&client_bg, &auth_bg).await {
+                        market_open_bg.store(is_open, Ordering::Relaxed);
+                    }
+                } else {
+                    market_open_bg.store(true, Ordering::Relaxed);
                 }
             }
         });
@@ -381,7 +472,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     const EMA_ALPHA_P50: f64 = 0.001;
     const EMA_ALPHA_P99: f64 = 0.0005;
 
-    let mut live_positions: HashMap<String, LiveBrokerPosition> = HashMap::new();
+    let mut live_positions: HashMap<String, LiveBrokerPosition> = if !matches!(broker_auth, BrokerAuth::None) {
+        let synced = fetch_alpaca_positions(&http_client, &broker_auth).await;
+        if !synced.is_empty() {
+            println!("[+] Posiciones Abiertas Sincronizadas del Broker ({} activas):", synced.len());
+            for (s, p) in &synced {
+                println!(
+                    "    - {}: qty={:.6}, entrada=${:.2}, nocional=${:.2} | TP/SL activados",
+                    s, p.qty, p.entry_price, p.notional
+                );
+            }
+        }
+        synced
+    } else {
+        HashMap::new()
+    };
     let mut last_broker_close_time: HashMap<String, Instant> = HashMap::new();
     let mut signal_confirmations: HashMap<String, (Side, u32, Instant)> = HashMap::new();
     let mut current_market_bias: f64 = 0.0;
@@ -392,8 +497,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut interval = tokio::time::interval(Duration::from_millis(1));
 
     println!("[+] Supervisor iniciado. Monitorizando telemetria, memoria y tiempos de calculo...");
-    println!("[+] Especializacion de Mercado: WALL STREET EQUITIES IEX (SPY, QQQ, NVDA, AAPL, TSLA...)");
-    println!("[+] Lead-Lag Cuantico: SPY/QQQ Macro Index Bias -> Arbitraje Estadistico en Acciones");
+    if is_crypto {
+        println!("[+] Especializacion de Mercado: ALTO RENDIMIENTO CRIPTO 24/7 (BTC/USD, ETH/USD, SOL/USD)");
+        println!("[+] Lead-Lag Cuantico: BTC/USD Benchmark Bias -> Arbitraje Estadistico en Altcoins");
+    } else {
+        println!("[+] Especializacion de Mercado: WALL STREET EQUITIES IEX (SPY, QQQ, NVDA, AAPL, TSLA...)");
+        println!("[+] Lead-Lag Cuantico: SPY/QQQ Macro Index Bias -> Arbitraje Estadistico en Acciones");
+    }
     println!("[+] Dimensionamiento Institucional: Kelly 0.75% base (~$745 USD), Cap 1.5% (~$1,490 USD)");
     println!("[+] Parametros de Ejecucion: TP=+0.35% (decay +0.18%), SL=-0.20%, R:R=1.75:1");
     println!("------------------------------------------------------------------------------------------\n");
@@ -408,8 +518,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             last_real_snapshot = Some(snap);
             real_snapshots.insert(sym.clone(), snap);
 
-            if sym == "SPY" || sym == "QQQ" {
-                current_market_bias = ((snap.micro_price - snap.mid_price) / (snap.mid_price * 0.00005)).clamp(-1.0, 1.0);
+            if sym == "SPY" || sym == "QQQ" || (is_crypto && sym.starts_with("BTC")) {
+                let scale = if sym.starts_with("BTC") { 0.0001 } else { 0.00005 };
+                current_market_bias = ((snap.micro_price - snap.mid_price) / (snap.mid_price * scale)).clamp(-1.0, 1.0);
             }
 
             println!(
@@ -475,7 +586,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         last_broker_close_time.insert(sym.clone(), Instant::now());
                     }
                 }
-            } else if sym != "SPY" && sym != "QQQ" {
+            } else if is_crypto || (sym != "SPY" && sym != "QQQ") {
                 // A2. No open position -> Evaluate Entry Criteria via SmartOrderRouter
                 let is_market_open = market_open_flag.load(Ordering::Relaxed);
                 let can_enter = is_market_open && last_broker_close_time
@@ -520,12 +631,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let max_notional = live_eq * 0.015;
                                 let notional = (base_notional * kelly_f * size_ratio).min(max_notional).max(50.0);
                                 let notional = (notional * 100.0).round() / 100.0;
-                                let qty = ((notional / snap.mid_price) * 100.0).round() / 100.0;
-                                let qty = qty.max(0.01);
+                                let is_crypto_sym = sym.contains('/') || sym.contains("USD");
+                                let qty = if is_crypto_sym {
+                                    let raw = notional / snap.mid_price;
+                                    ((raw * 10_000_000.0).round() / 10_000_000.0).max(0.0000001)
+                                } else {
+                                    let q = ((notional / snap.mid_price) * 100.0).round() / 100.0;
+                                    q.max(0.01)
+                                };
 
                                 if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, order_side_str, (None, Some(notional))).await {
                                     println!(
-                                        " \x1b[1;36m[ALPACA EQUITIES: ENTRADA {} (SOR: {:?})]\x1b[0m {} a ${:.2} (qty: {:.2}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
+                                        " \x1b[1;36m[ALPACA ENTRADA {} (SOR: {:?})]\x1b[0m {} a ${:.2} (qty: {:.6}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
                                         order_side_str.to_uppercase(), snap.active_phase, sym, snap.mid_price, qty, notional, kelly_f, snap.vpin, snap.quantum_coherence, snap.normalized_entropy
                                     );
                                     live_positions.insert(
