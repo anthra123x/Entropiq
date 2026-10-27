@@ -78,102 +78,129 @@ impl AlpacaStreamer {
     {
         let _ = rustls::crypto::ring::default_provider().install_default();
 
-        let url = self.websocket_url();
-        println!("[AlpacaStreamer] Connecting to {}", url);
+        let mut retry_delay = std::time::Duration::from_secs(1);
+        loop {
+            let url = self.websocket_url();
+            println!("[AlpacaStreamer] Connecting to {}", url);
 
-        let (ws_stream, _) = connect_async(url).await?;
-        let (mut write, mut read) = ws_stream.split();
+            match connect_async(url).await {
+                Ok((ws_stream, _)) => {
+                    retry_delay = std::time::Duration::from_secs(1);
+                    let (mut write, mut read) = ws_stream.split();
 
-        println!("[AlpacaStreamer] Connected. Waiting for server greeting...");
+                    println!("[AlpacaStreamer] Connected. Waiting for server greeting...");
 
-        // 1. Receive Greeting
-        if let Some(msg) = read.next().await {
-            let text = msg?.into_text()?;
-            println!("[AlpacaStreamer] Server greeting: {}", text);
-        }
+                    // 1. Receive Greeting
+                    if let Some(msg) = read.next().await {
+                        if let Ok(m) = msg {
+                            if let Ok(text) = m.into_text() {
+                                println!("[AlpacaStreamer] Server greeting: {}", text);
+                            }
+                        }
+                    }
 
-        // 2. Send Authentication (Key/Secret or OAuth Bearer Token)
-        let auth_msg = match &self.auth {
-            AlpacaAuth::KeySecret { key, secret } => AuthMessage {
-                action: "auth",
-                key: Some(key),
-                secret: Some(secret),
-                token: None,
-            },
-            AlpacaAuth::OAuthToken(token) => AuthMessage {
-                action: "auth",
-                key: Some("oauth"),
-                secret: Some(token.as_str()),
-                token: None,
-            },
-        };
-        let auth_json = serde_json::to_string(&auth_msg)?;
-        write.send(Message::Text(auth_json)).await?;
+                    // 2. Send Authentication (Key/Secret or OAuth Bearer Token)
+                    let auth_msg = match &self.auth {
+                        AlpacaAuth::KeySecret { key, secret } => AuthMessage {
+                            action: "auth",
+                            key: Some(key),
+                            secret: Some(secret),
+                            token: None,
+                        },
+                        AlpacaAuth::OAuthToken(token) => AuthMessage {
+                            action: "auth",
+                            key: Some("oauth"),
+                            secret: Some(token.as_str()),
+                            token: None,
+                        },
+                    };
+                    if let Ok(auth_json) = serde_json::to_string(&auth_msg) {
+                        if let Err(e) = write.send(Message::Text(auth_json)).await {
+                            eprintln!("[AlpacaStreamer] Error enviando auth: {:?}", e);
+                            tokio::time::sleep(retry_delay).await;
+                            continue;
+                        }
+                    }
 
-        // 3. Receive Auth Response
-        if let Some(msg) = read.next().await {
-            let text = msg?.into_text()?;
-            println!("[AlpacaStreamer] Auth response: {}", text);
-        }
+                    // 3. Receive Auth Response
+                    if let Some(msg) = read.next().await {
+                        if let Ok(m) = msg {
+                            if let Ok(text) = m.into_text() {
+                                println!("[AlpacaStreamer] Auth response: {}", text);
+                            }
+                        }
+                    }
 
-        // 4. Send Subscription Request
-        let sub_msg = SubscribeMessage {
-            action: "subscribe",
-            trades: symbols.clone(),
-            quotes: symbols.clone(),
-        };
-        let sub_json = serde_json::to_string(&sub_msg)?;
-        write.send(Message::Text(sub_json)).await?;
-        println!("[AlpacaStreamer] Subscribed to {:?}", symbols);
+                    // 4. Send Subscription Request
+                    let sub_msg = SubscribeMessage {
+                        action: "subscribe",
+                        trades: symbols.clone(),
+                        quotes: symbols.clone(),
+                    };
+                    if let Ok(sub_json) = serde_json::to_string(&sub_msg) {
+                        if let Err(e) = write.send(Message::Text(sub_json)).await {
+                            eprintln!("[AlpacaStreamer] Error suscribiendo simbolos: {:?}", e);
+                            tokio::time::sleep(retry_delay).await;
+                            continue;
+                        }
+                    }
+                    println!("[AlpacaStreamer] Subscribed to {:?}", symbols);
 
-        // 5. Real-time Ingestion Loop
-        while let Some(msg_result) = read.next().await {
-            let msg = match msg_result {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("[AlpacaStreamer] WebSocket read error: {:?}", e);
-                    break;
+                    // 5. Real-time Ingestion Loop
+                    while let Some(msg_result) = read.next().await {
+                        let msg = match msg_result {
+                            Ok(m) => m,
+                            Err(e) => {
+                                eprintln!("[AlpacaStreamer] WebSocket read error: {:?}", e);
+                                break;
+                            }
+                        };
+
+                        if let Message::Text(text) = msg {
+                            let current_time_ns = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_nanos() as u64;
+
+                            let parsed_messages: Result<Vec<AlpacaStreamMessage>, _> = serde_json::from_str(&text);
+                            match parsed_messages {
+                                Ok(messages) => {
+                                    for m in messages {
+                                        Self::process_message(
+                                            &mut self.engines,
+                                            self.default_tick_size,
+                                            m,
+                                            current_time_ns,
+                                            &mut on_snapshot,
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    if let Ok(single) = serde_json::from_str::<AlpacaStreamMessage>(&text) {
+                                        Self::process_message(
+                                            &mut self.engines,
+                                            self.default_tick_size,
+                                            single,
+                                            current_time_ns,
+                                            &mut on_snapshot,
+                                        );
+                                    } else {
+                                        eprintln!("[AlpacaStreamer] Warning al deserializar: {:?} | Raw: {}", e, text);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    eprintln!("[AlpacaStreamer] Desconectado del WebSocket. Reintentando en {}s...", retry_delay.as_secs());
                 }
-            };
-
-            if let Message::Text(text) = msg {
-                let current_time_ns = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64;
-
-                // Alpaca sends an array of messages per frame: [{"T":"q", ...}, {"T":"t", ...}]
-                let parsed_messages: Result<Vec<AlpacaStreamMessage>, _> = serde_json::from_str(&text);
-                match parsed_messages {
-                    Ok(messages) => {
-                        for m in messages {
-                            Self::process_message(
-                                &mut self.engines,
-                                self.default_tick_size,
-                                m,
-                                current_time_ns,
-                                &mut on_snapshot,
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        if let Ok(single) = serde_json::from_str::<AlpacaStreamMessage>(&text) {
-                            Self::process_message(
-                                &mut self.engines,
-                                self.default_tick_size,
-                                single,
-                                current_time_ns,
-                                &mut on_snapshot,
-                            );
-                        } else {
-                            eprintln!("[AlpacaStreamer] Warning al deserializar: {:?} | Raw: {}", e, text);
-                        }
-                    }
+                Err(e) => {
+                    eprintln!("[AlpacaStreamer] Error conectando a {}: {:?}. Reintentando en {}s...", url, e, retry_delay.as_secs());
                 }
             }
-        }
 
-        Ok(())
+            tokio::time::sleep(retry_delay).await;
+            retry_delay = (retry_delay * 2).min(std::time::Duration::from_secs(30));
+        }
     }
 
     fn get_engine_mut<'a>(
@@ -181,15 +208,16 @@ impl AlpacaStreamer {
         symbol: &str,
         default_tick_size: f64,
     ) -> &'a mut QuantumMarketEngine {
-        engines.entry(symbol.to_string()).or_insert_with(|| {
+        if !engines.contains_key(symbol) {
             let tick = match symbol {
                 s if s.starts_with("BTC") => 0.50,
                 s if s.starts_with("ETH") => 0.05,
                 s if s.starts_with("SOL") => 0.01,
                 _ => default_tick_size,
             };
-            QuantumMarketEngine::new(tick)
-        })
+            engines.insert(symbol.to_string(), QuantumMarketEngine::new(tick));
+        }
+        engines.get_mut(symbol).unwrap()
     }
 
     fn process_message<F>(
@@ -203,10 +231,28 @@ impl AlpacaStreamer {
     {
         match msg {
             AlpacaStreamMessage::Quote(q) => {
-                let engine = Self::get_engine_mut(engines, &q.symbol, default_tick_size);
                 let quote = q.to_microstructure_quote(current_time_ns);
+                let is_macro_index = q.symbol == "SPY" || q.symbol == "QQQ";
+                let macro_bias = if is_macro_index {
+                    let mid = quote.mid_price();
+                    let micro = quote.micro_price();
+                    Some(((micro - mid) / (mid * 0.00005)).clamp(-1.0, 1.0))
+                } else {
+                    None
+                };
+
+                let engine = Self::get_engine_mut(engines, &q.symbol, default_tick_size);
                 if let Some(snap) = engine.on_quote(quote) {
                     on_snapshot(&q.symbol, &snap);
+                }
+
+                // Propagate lead-lag macro index bias to all other equities engines in real time
+                if let Some(bias) = macro_bias {
+                    for (sym, eng) in engines.iter_mut() {
+                        if sym != "SPY" && sym != "QQQ" {
+                            eng.set_external_index_bias(bias);
+                        }
+                    }
                 }
             }
             AlpacaStreamMessage::Trade(t) => {
@@ -234,3 +280,4 @@ impl AlpacaStreamer {
         }
     }
 }
+

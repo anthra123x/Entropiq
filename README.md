@@ -33,22 +33,25 @@ Entropiq/
 │   │   └── potential.rs                    # Quantum tunneling and barrier transmission
 │   ├── market-microstructure/              # Microstructure metrics and fluid dynamics
 │   │   ├── types.rs                        # Level-1 NBBO Quotes and Trade executions
-│   │   ├── state.rs                        # Order Flow Imbalance (OFI) tracker
+│   │   ├── book_l2.rs                      # Stack-allocated Level-2 Depth Book & Deep OFI
+│   │   ├── state.rs                        # Order Flow Imbalance (OFI) tracker with time decay
 │   │   └── fluid.rs                        # Liquidity hydrodynamics (Sound Speed & Mach)
 │   ├── quantum-engine/                     # Unified state engine, phase transitions & audit
-│   │   ├── hamiltonian.rs                  # Market Hamiltonian builder
+│   │   ├── hamiltonian.rs                  # Market Hamiltonian builder (with macro Lead-Lag)
 │   │   ├── phase.rs                        # 4-Phase Econophysical transition classifier
-│   │   ├── engine.rs                       # Sub-microsecond tick analysis pipeline
+│   │   ├── engine.rs                       # Sub-microsecond tick analysis & L2 pipeline
+│   │   ├── sor.rs                          # Smart Order Router (SOR) & execution policy
 │   │   └── audit.rs                        # O(1) Quantitative Auditor (E[R], Sharpe, Calmar)
 │   ├── market-simulator/                   # Deterministic feed generation and persistence
 │   │   ├── rng.rs                          # XorShift64 and Box-Muller PRNG
 │   │   ├── regimes.rs                      # Microstructural regime generator
+│   │   ├── queue_tracker.rs                # High-fidelity FIFO queue position tracker
 │   │   ├── binary_feed.rs                  # 32-byte cache-aligned binary records
-│   │   └── binary_disk.rs                  # Page-aligned binary disk recorder (625 MB/s)
+│   │   └── binary_disk.rs                  # Page-aligned binary disk recorder (1.4 GB/s)
 │   └── alpaca-streamer/                    # Asynchronous real-time market data ingestion
 │       ├── model.rs                        # Alpaca Market Data v2 message models
-│       ├── client.rs                       # Asynchronous WebSocket client with TLS (OAuth & Key/Secret)
-│       └── bin/supervisor.rs               # Production real-time telemetry supervisor and auditor
+│       ├── client.rs                       # Resilient WebSocket client with backoff & Lead-Lag
+│       └── bin/supervisor.rs               # Production supervisor with connection pooling & live auditor
 ```
 
 ---
@@ -99,19 +102,30 @@ The order book is modeled as a compressible fluid medium:
 *   Mach Number: $M = \frac{v_{\text{price}}}{c_s}$
 *   Cavitation Criterion ($M \ge 1.0$): Supersonic flow exceeds the replenishment speed of passive limit orders, triggering fluid cavitation (predicting flash crashes and extreme slippage).
 
+### 5. Multi-Level Deep OFI & Smart Order Routing (SOR)
+
+Beyond Top-of-Book quotes, the framework computes Deep Order Flow Imbalance across $K$ order book levels weighted by inverse distance $w_k = \frac{1}{k+1}$:
+
+$$\text{OFI}_{\text{deep}} = \sum_{k=0}^{K-1} w_k \cdot (\Delta \text{Bid}_k - \Delta \text{Ask}_k)$$
+
+The Smart Order Router (SOR) routes execution dynamically across three policy regimes:
+*   **Superconducting Breakout ($T \ge 0.75, \text{Bias} > 0.15$):** Aggressive Taker routing to capture institutional breakouts before spread widening.
+*   **Coherent Condensate (Stealth Iceberg Accumulation):** Passive Maker posting at BBO to capture the spread with zero taker fees.
+*   **Fluid Cavitation ($M \ge 1.0$) or Toxic Flow ($\text{VPIN} > 0.70$):** Immediate emergency cancellation of all resting orders.
+
 ---
 
 ## Performance Benchmarks
 
-Evaluated on standard x86_64 hardware in release mode:
+Evaluated across 1,000,000 ticks in release mode on Linux x86_64:
 
-| Component / Pipeline | Latency | Throughput | Allocation Profile |
+| Component / Pipeline | Latency (p50 / p99) | Throughput | Allocation Profile |
 | :--- | :--- | :--- | :--- |
-| Core Analytics Pipeline | 182 ns (0.18 µs) | 5.47M ticks/sec | Zero heap allocation |
-| Full Physics (Lindblad RK4 + CTQW) | 930 ns (0.93 µs) | 1.08M ticks/sec | Zero heap allocation |
-| Complete Engine + Execution + Audit | 1,097 ns (1.09 µs) | 911k ticks/sec | Zero heap allocation |
-| Binary Disk Persistence Write | 48 ns (0.048 µs) | 20.5M ticks/sec (625 MB/s) | OS Page-aligned (64 KB) |
-| Binary Disk Streaming + Quant Engine | 1,170 ns (1.17 µs) | 854k ticks/sec | Streaming buffered I/O |
+| Core Analytics Pipeline | 182 ns / 280 ns | 5.49M ops/sec | Zero heap allocation |
+| Full Physics (Lindblad RK4 + CTQW) | 952 ns / 1.35 µs | 1.05M ops/sec | Zero heap allocation |
+| Complete 1M-Tick Pipeline (End-to-End) | 2.80 µs (p50) / 5.19 µs (p99) | 335k - 524k ticks/sec | Zero heap allocation (3.1 MB RSS) |
+| Binary Disk Persistence Write (SSD) | 21 ns / rec | 45.9M IOPS (1,401 MB/s) | OS Page-aligned (64 KB) |
+| Binary Disk Persistence Read (SSD) | 9.9 ns / rec | 100.1M IOPS (3,054 MB/s) | OS Page-aligned (64 KB) |
 
 ---
 
@@ -146,8 +160,11 @@ Results from a 1,000,000 tick continuous execution backtest across cyclic micros
 Compile and execute test suites and benchmarks:
 
 ```bash
-# Execute workspace unit test suite (14/14 passing)
+# Execute full workspace unit test suite (20/20 passing)
 cargo test --workspace
+
+# Benchmark Suite: Institutional 4-Layer Performance & Latency Audit (1,000,000 Ticks)
+cargo run --release --example benchmark_suite -p quantum-engine
 
 # Benchmark 1: 4-Regime Microstructure Dynamics
 cargo run --release --example regime_evaluator -p quantum-engine

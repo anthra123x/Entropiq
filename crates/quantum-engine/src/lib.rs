@@ -2,11 +2,13 @@ pub mod audit;
 pub mod engine;
 pub mod hamiltonian;
 pub mod phase;
+pub mod sor;
 
 pub use audit::PortfolioAuditor;
 pub use engine::{QuantumAnalyticsSnapshot, QuantumMarketEngine};
 pub use hamiltonian::MarketHamiltonian;
 pub use phase::{MarketQuantumPhase, PhaseClassifier};
+pub use sor::{OrderIntent, SmartOrderRouter};
 
 #[cfg(test)]
 mod tests {
@@ -37,5 +39,20 @@ mod tests {
         assert!(snap2.normalized_entropy < snap1.normalized_entropy);
         assert!(snap2.tunneling_prob_ask > snap2.tunneling_prob_bid);
         assert!(snap2.state_bias > 0.0);
+    }
+
+    #[test]
+    fn test_smart_order_router_and_l2() {
+        use market_microstructure::L2Book;
+
+        let mut engine = QuantumMarketEngine::new(0.01);
+        let mut book = L2Book::<5>::new(1_000_000_000);
+        book.set_bid(0, 100.0, 50.0, 5);
+        book.set_ask(0, 100.05, 50.0, 5);
+
+        let snap = engine.on_l2_book(&book).expect("L2 snapshot");
+        let intent = SmartOrderRouter::route_intent(&snap, 100.0, 100.05, 1.0);
+        // Thermal noise -> NeutralHold
+        assert_eq!(intent, OrderIntent::NeutralHold);
     }
 }

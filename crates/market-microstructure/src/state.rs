@@ -17,6 +17,8 @@ pub struct MarketTracker {
     pub ofi_acceleration: f64,
     pub vpin: f64,
     pub tick_size: f64,
+    pub last_event_time_ns: u64,
+    pub decay_halflife_sec: f64,
 }
 
 impl MarketTracker {
@@ -33,11 +35,30 @@ impl MarketTracker {
             ofi_acceleration: 0.0,
             vpin: 0.0,
             tick_size: if tick_size > 0.0 { tick_size } else { 0.01 },
+            last_event_time_ns: 0,
+            decay_halflife_sec: 5.0,
         }
+    }
+
+    /// Applies continuous exponential time-decay to rolling volume and accumulated OFI.
+    #[inline(always)]
+    pub fn apply_time_decay(&mut self, current_time_ns: u64) {
+        if self.last_event_time_ns > 0 && current_time_ns > self.last_event_time_ns {
+            let dt_sec = (current_time_ns - self.last_event_time_ns) as f64 * 1e-9;
+            if dt_sec >= 0.001 {
+                let decay = (-dt_sec / self.decay_halflife_sec.max(0.1)).exp();
+                self.window_buy_volume *= decay;
+                self.window_sell_volume *= decay;
+                self.accumulated_ofi *= decay;
+            }
+        }
+        self.last_event_time_ns = current_time_ns;
     }
 
     /// Ingests a new quote and updates Order Flow Imbalance (OFI).
     pub fn update_quote(&mut self, new_quote: Quote) {
+        self.apply_time_decay(new_quote.timestamp_ns);
+
         if let Some(prev) = self.current_quote {
             // Cont-Kukanov-Stoikov OFI formulation:
             // e_n = I_{p_b(n) >= p_b(n-1)} * q_b(n) - I_{p_b(n) <= p_b(n-1)} * q_b(n-1)
@@ -76,6 +97,8 @@ impl MarketTracker {
 
     /// Ingests an executed trade print.
     pub fn update_trade(&mut self, trade: Trade) {
+        self.apply_time_decay(trade.timestamp_ns);
+
         match trade.taker_side {
             Side::Buy => self.window_buy_volume += trade.size,
             Side::Sell => self.window_sell_volume += trade.size,

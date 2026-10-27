@@ -55,7 +55,7 @@ impl PhaseClassifier {
 
         if max_tunnel > 0.72
             && snapshot.normalized_entropy < 0.88
-            && snapshot.entropy_production_rate <= 0.01
+            && snapshot.entropy_production_rate <= 0.50
             && ofi_aligned
             && toxic_shield_ok
             && snapshot.fluid_metrics.flow_velocity > 0.005

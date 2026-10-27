@@ -38,7 +38,11 @@ impl PortfolioAuditor {
             self.peak_equity = self.current_equity;
         }
 
-        let dd = (self.peak_equity - self.current_equity) / self.peak_equity;
+        let dd = if self.peak_equity > 0.0 {
+            (self.peak_equity - self.current_equity) / self.peak_equity
+        } else {
+            0.0
+        };
         if dd > self.max_drawdown {
             self.max_drawdown = dd;
         }

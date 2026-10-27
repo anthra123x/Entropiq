@@ -39,47 +39,85 @@ fn get_memory_rss_mb() -> f64 {
     0.0
 }
 
+#[derive(Clone)]
+enum BrokerAuth {
+    OAuth(Arc<String>),
+    KeySecret { key: Arc<String>, secret: Arc<String> },
+    None,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct LiveBrokerPosition {
     symbol: String,
     side_buy: bool,
     entry_price: f64,
+    qty: f64,
     notional: f64,
     entry_time: Instant,
 }
 
-fn execute_alpaca_paper_order(token: Arc<String>, symbol: String, side: &'static str, notional_usd: f64) {
-    if token.is_empty() {
+fn execute_alpaca_paper_order(
+    client: reqwest::Client,
+    auth: BrokerAuth,
+    symbol: String,
+    side: &'static str,
+    qty_or_notional: (Option<f64>, Option<f64>),
+) {
+    if matches!(auth, BrokerAuth::None) {
         return;
     }
-    tokio::task::spawn_blocking(move || {
-        let payload = format!(
-            r#"{{"symbol":"{}","notional":"{:.2}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
-            symbol, notional_usd, side
-        );
-        let output = std::process::Command::new("curl")
-            .arg("-s")
-            .arg("-X")
-            .arg("POST")
-            .arg("https://paper-api.alpaca.markets/v2/orders")
-            .arg("-H")
-            .arg(format!("Authorization: Bearer {}", *token))
-            .arg("-H")
-            .arg("Content-Type: application/json")
-            .arg("-d")
-            .arg(payload)
-            .output();
+    tokio::spawn(async move {
+        let payload = if let Some(qty) = qty_or_notional.0 {
+            format!(
+                r#"{{"symbol":"{}","qty":"{:.2}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
+                symbol, qty, side
+            )
+        } else if let Some(notional) = qty_or_notional.1 {
+            format!(
+                r#"{{"symbol":"{}","notional":"{:.2}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
+                symbol, notional, side
+            )
+        } else {
+            return;
+        };
 
-        if let Ok(out) = output {
-            let res = String::from_utf8_lossy(&out.stdout);
-            if res.contains(r#""id""#) {
-                println!(
-                    " \x1b[1;35m[ALPACA BROKER ORDER]\x1b[0m Transaccion ejecutada en Broker: {} {} por ${:.2} USD",
-                    side.to_uppercase(),
-                    symbol,
-                    notional_usd
-                );
+        let mut req = client
+            .post("https://paper-api.alpaca.markets/v2/orders")
+            .header("Content-Type", "application/json")
+            .body(payload);
+
+        match &auth {
+            BrokerAuth::OAuth(token) => {
+                req = req.header("Authorization", format!("Bearer {}", *token));
+            }
+            BrokerAuth::KeySecret { key, secret } => {
+                req = req
+                    .header("APCA-API-KEY-ID", key.as_str())
+                    .header("APCA-API-SECRET-KEY", secret.as_str());
+            }
+            BrokerAuth::None => return,
+        }
+
+        match req.send().await {
+            Ok(resp) => {
+                if let Ok(text) = resp.text().await {
+                    if text.contains(r#""id""#) {
+                        println!(
+                            " \x1b[1;35m[ALPACA BROKER ORDER]\x1b[0m Transaccion ejecutada en Broker: {} {}",
+                            side.to_uppercase(),
+                            symbol
+                        );
+                    } else if !text.trim().is_empty() {
+                        eprintln!(
+                            " \x1b[1;31m[ALPACA BROKER RECHAZO]\x1b[0m Respuesta de Broker: {}",
+                            text.trim()
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(" \x1b[1;31m[ALPACA NETWORK ERROR]\x1b[0m Fallo HTTP al enviar orden: {:?}", e);
             }
         }
     });
@@ -131,8 +169,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if !api_key.is_empty() && !api_secret.is_empty() {
         println!("[+] Modo de Autenticacion: Alpaca API Key / Secret (Activo)");
         Some(AlpacaAuth::KeySecret {
-            key: api_key,
-            secret: api_secret,
+            key: api_key.clone(),
+            secret: api_secret.clone(),
         })
     } else {
         println!("[!] Sin credenciales remotas en .env; ejecutando en modo simulador puro de ultra-baja latencia.");
@@ -214,7 +252,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut entry_side_buy = true;
     let mut entry_leverage = 1.0;
 
-    let token_arc = Arc::new(oauth_token.clone());
+    let broker_auth = if !oauth_token.is_empty() {
+        BrokerAuth::OAuth(Arc::new(oauth_token.clone()))
+    } else if !api_key.is_empty() && !api_secret.is_empty() {
+        BrokerAuth::KeySecret {
+            key: Arc::new(api_key.clone()),
+            secret: Arc::new(api_secret.clone()),
+        }
+    } else {
+        BrokerAuth::None
+    };
+
+    let http_client = reqwest::Client::builder()
+        .pool_idle_timeout(Duration::from_secs(90))
+        .pool_max_idle_per_host(10)
+        .tcp_nodelay(true)
+        .build()?;
     let mut live_positions: HashMap<String, LiveBrokerPosition> = HashMap::new();
     let mut last_broker_close_time: HashMap<String, Instant> = HashMap::new();
     let mut current_market_bias: f64 = 0.0;
@@ -255,8 +308,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // 1. Take-Profit (+0.18% target or +0.08% with momentum exhaustion)
                 if return_frac >= 0.0018 || (return_frac >= 0.0008 && coherence < 0.20) {
                     let exit_side = if pos.side_buy { "sell" } else { "buy" };
-                    execute_alpaca_paper_order(token_arc.clone(), sym.clone(), exit_side, pos.notional);
+                    execute_alpaca_paper_order(http_client.clone(), broker_auth.clone(), sym.clone(), exit_side, (Some(pos.qty), None));
                     let profit_usd = return_frac * pos.notional;
+                    auditor.record_trade(profit_usd, return_frac);
                     println!(
                         " \x1b[1;32m[ALPACA TAKE-PROFIT]\x1b[0m Posicion cerrada en {}: +{:.2}% | Ganancia: +${:.3} USD",
                         sym, return_frac * 100.0, profit_usd
@@ -266,10 +320,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // 2. Stop-Loss (-0.12% max adverse risk or -0.06% with adverse liquidity cavitation)
                 } else if return_frac <= -0.0012 || (phase == MarketQuantumPhase::LiquidityCavitation && return_frac <= -0.0006) {
                     let exit_side = if pos.side_buy { "sell" } else { "buy" };
-                    execute_alpaca_paper_order(token_arc.clone(), sym.clone(), exit_side, pos.notional);
-                    let loss_usd = (-return_frac) * pos.notional;
+                    execute_alpaca_paper_order(http_client.clone(), broker_auth.clone(), sym.clone(), exit_side, (Some(pos.qty), None));
+                    let loss_usd = return_frac * pos.notional;
+                    auditor.record_trade(loss_usd, return_frac);
                     println!(
-                        " \x1b[1;31m[ALPACA STOP-LOSS]\x1b[0m Riesgo cortado en {}: {:.2}% | Perdida: -${:.3} USD",
+                        " \x1b[1;31m[ALPACA STOP-LOSS]\x1b[0m Riesgo cortado en {}: {:.2}% | Perdida: ${:.3} USD",
                         sym, return_frac * 100.0, loss_usd
                     );
                     live_positions.remove(&sym);
@@ -301,11 +356,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     if is_aligned_with_macro {
                         let notional = 25.0; // High-precision $25.00 USD notional in equities
-                        execute_alpaca_paper_order(token_arc.clone(), sym.clone(), order_side, notional);
+                        let qty = ((notional / mid) * 100.0).round() / 100.0;
+                        let qty = qty.max(0.01);
+                        execute_alpaca_paper_order(http_client.clone(), broker_auth.clone(), sym.clone(), order_side, (None, Some(notional)));
                         let trigger_reason = if trigger_breakout { "BREAKOUT" } else { "CAVITACION" };
                         println!(
-                            " \x1b[1;36m[ALPACA EQUITIES: ENTRADA {} ({})]\x1b[0m {} a ${:.2} | Micro: ${:.2} | Bias SPY: {:.2} | Coher: {:.3} | S: {:.3}",
-                            order_side.to_uppercase(), trigger_reason, sym, mid, micro, current_market_bias, coherence, entropy
+                            " \x1b[1;36m[ALPACA EQUITIES: ENTRADA {} ({})]\x1b[0m {} a ${:.2} (qty: {:.2}) | Micro: ${:.2} | Bias SPY: {:.2} | Coher: {:.3} | S: {:.3}",
+                            order_side.to_uppercase(), trigger_reason, sym, mid, qty, micro, current_market_bias, coherence, entropy
                         );
                         live_positions.insert(
                             sym.clone(),
@@ -313,6 +370,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 symbol: sym.clone(),
                                 side_buy,
                                 entry_price: mid,
+                                qty,
                                 notional,
                                 entry_time: Instant::now(),
                             },
@@ -360,38 +418,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Dynamic execution with Maker/Taker spread capture, Kelly leverage, and Decoherence stop
-            if let Some(snap) = snap_opt {
-                if !in_position {
-                    if snap.active_phase == MarketQuantumPhase::SuperconductingBreakout && snap.quantum_coherence >= 0.70 && snap.phase_confidence > 0.78 {
-                        in_position = true;
-                        entry_price = snap.mid_price;
-                        entry_side_buy = snap.tunneling_prob_ask > snap.tunneling_prob_bid;
-                        entry_leverage = auditor.kelly_leverage(snap.quantum_coherence);
-                    }
-                } else {
-                    let price_diff = if entry_side_buy {
-                        snap.mid_price - entry_price
+            // Dynamic execution: Only record synthetic trades into auditor if Alpaca is NOT active (pure local simulation mode)
+            let is_alpaca_live = alpaca_connected.load(Ordering::Relaxed);
+            if !is_alpaca_live {
+                if let Some(snap) = snap_opt {
+                    if !in_position {
+                        if snap.active_phase == MarketQuantumPhase::SuperconductingBreakout && snap.quantum_coherence >= 0.70 && snap.phase_confidence > 0.78 {
+                            in_position = true;
+                            entry_price = snap.mid_price;
+                            entry_side_buy = snap.tunneling_prob_ask > snap.tunneling_prob_bid;
+                            entry_leverage = auditor.kelly_leverage(snap.quantum_coherence);
+                        }
                     } else {
-                        entry_price - snap.mid_price
-                    };
-                    let return_frac = price_diff / entry_price.max(1.0);
+                        let price_diff = if entry_side_buy {
+                            snap.mid_price - entry_price
+                        } else {
+                            entry_price - snap.mid_price
+                        };
+                        let return_frac = price_diff / entry_price.max(1.0);
 
-                    // Maker spread capture bonus (+0.8 bps on orderly passive fill)
-                    let maker_bonus = if snap.tunneling_prob_ask.max(snap.tunneling_prob_bid) <= 0.88 { 0.00008 } else { 0.0 };
+                        // Maker spread capture bonus (+0.8 bps on orderly passive fill)
+                        let maker_bonus = if snap.tunneling_prob_ask.max(snap.tunneling_prob_bid) <= 0.88 { 0.00008 } else { 0.0 };
 
-                    // 1. Take-Profit on momentum exhaustion or target gain (+0.35%)
-                    if return_frac >= 0.0035 || (return_frac >= 0.0018 && snap.active_phase != MarketQuantumPhase::SuperconductingBreakout) {
-                        let net_return = (return_frac + maker_bonus) * entry_leverage;
-                        let pnl = price_diff * 100.0 * entry_leverage + (maker_bonus * entry_price * 100.0);
-                        auditor.record_trade(pnl, net_return);
-                        in_position = false;
-                    // 2. Stop-Loss on Cavitation Risk or adverse move (-0.15%)
-                    } else if (snap.active_phase == MarketQuantumPhase::LiquidityCavitation && return_frac < -0.0005) || return_frac <= -0.0015 {
-                        let pnl = price_diff * 100.0 * entry_leverage;
-                        auditor.record_trade(pnl, return_frac * entry_leverage);
-                        in_position = false;
+                        // 1. Take-Profit on momentum exhaustion or target gain (+0.35%)
+                        if return_frac >= 0.0035 || (return_frac >= 0.0018 && snap.active_phase != MarketQuantumPhase::SuperconductingBreakout) {
+                            let net_return = (return_frac + maker_bonus) * entry_leverage;
+                            let pnl = price_diff * 100.0 * entry_leverage + (maker_bonus * entry_price * 100.0);
+                            auditor.record_trade(pnl, net_return);
+                            in_position = false;
+                        // 2. Stop-Loss on Cavitation Risk or adverse move (-0.15%)
+                        } else if (snap.active_phase == MarketQuantumPhase::LiquidityCavitation && return_frac < -0.0005) || return_frac <= -0.0015 {
+                            let pnl = price_diff * 100.0 * entry_leverage;
+                            auditor.record_trade(pnl, return_frac * entry_leverage);
+                            in_position = false;
+                        }
                     }
                 }
+            }
+            if let Some(snap) = snap_opt {
                 last_snapshot = Some(snap);
             }
         }

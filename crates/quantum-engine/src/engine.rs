@@ -1,5 +1,5 @@
 use quantum_core::{CMatrix, Complex64, DensityMatrix, LindbladSolver, QuantumDepthWalk, QuantumPotential};
-use market_microstructure::{FluidMetrics, LiquidityFluidModel, MarketTracker, Quote, Side, Trade};
+use market_microstructure::{FluidMetrics, L2Book, LiquidityFluidModel, MarketTracker, Quote, Side, Trade};
 use crate::hamiltonian::MarketHamiltonian;
 use crate::phase::{MarketQuantumPhase, PhaseClassifier};
 
@@ -63,6 +63,13 @@ impl QuantumMarketEngine {
     /// Sets real-time external market index bias (e.g. SPY / ES futures lead-lag momentum in range [-1.0, 1.0]).
     pub fn set_external_index_bias(&mut self, bias: f64) {
         self.external_index_bias = bias.clamp(-1.0, 1.0);
+    }
+
+    /// Ingests a full Level-2 Order Book snapshot.
+    #[inline(always)]
+    pub fn on_l2_book<const D: usize>(&mut self, book: &L2Book<D>) -> Option<QuantumAnalyticsSnapshot> {
+        let quote = book.to_quote()?;
+        self.on_quote(quote)
     }
 
     #[inline(always)]
@@ -155,7 +162,8 @@ impl QuantumMarketEngine {
         let norm_entropy = self.density_matrix.normalized_entropy();
         let coherence = self.density_matrix.quantum_coherence();
 
-        let entropy_rate = norm_entropy - self.prev_normalized_entropy;
+        let effective_dt = dt_sec.max(0.0001);
+        let entropy_rate = (norm_entropy - self.prev_normalized_entropy) / effective_dt;
         self.prev_normalized_entropy = norm_entropy;
         let ofi_accel = self.tracker.ofi_acceleration;
 

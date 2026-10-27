@@ -1,5 +1,5 @@
-use crate::binary_feed::BinaryQuoteRecord;
-use market_microstructure::Quote;
+use crate::binary_feed::{BinaryQuoteRecord, BinaryTradeRecord};
+use market_microstructure::{Quote, Trade};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -49,6 +49,23 @@ impl BinaryDiskRecorder {
 
     /// Appends a slice of quotes in a single vectorized memory copy.
     pub fn write_quote_batch(&mut self, records: &[BinaryQuoteRecord]) -> io::Result<()> {
+        for r in records {
+            self.writer.write_all(&r.to_bytes())?;
+        }
+        self.records_written += records.len() as u64;
+        Ok(())
+    }
+
+    /// Appends a single 32-byte binary trade directly to the 64KB page buffer.
+    #[inline(always)]
+    pub fn write_trade(&mut self, record: &BinaryTradeRecord) -> io::Result<()> {
+        self.writer.write_all(&record.to_bytes())?;
+        self.records_written += 1;
+        Ok(())
+    }
+
+    /// Appends a slice of trades in a single vectorized memory copy.
+    pub fn write_trade_batch(&mut self, records: &[BinaryTradeRecord]) -> io::Result<()> {
         for r in records {
             self.writer.write_all(&r.to_bytes())?;
         }
@@ -126,6 +143,23 @@ impl BinaryDiskReader {
                 self.records_read += 1;
                 match BinaryQuoteRecord::from_bytes(&buffer) {
                     Ok(rec) => Ok(Some(rec.to_quote())),
+                    Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+                }
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::UnexpectedEof => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Reads next 32-byte trade record from disk buffer. Returns None on EOF.
+    #[inline(always)]
+    pub fn read_next_trade(&mut self) -> io::Result<Option<Trade>> {
+        let mut buffer = [0u8; BinaryTradeRecord::SIZE];
+        match self.reader.read_exact(&mut buffer) {
+            Ok(_) => {
+                self.records_read += 1;
+                match BinaryTradeRecord::from_bytes(&buffer) {
+                    Ok(rec) => Ok(Some(rec.to_trade())),
                     Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
                 }
             }

@@ -1,10 +1,12 @@
 pub mod binary_disk;
 pub mod binary_feed;
+pub mod queue_tracker;
 pub mod regimes;
 pub mod rng;
 
 pub use binary_disk::{BinaryDiskReader, BinaryDiskRecorder};
 pub use binary_feed::{BinaryBufferReplayer, BinaryQuoteRecord, BinaryTradeRecord};
+pub use queue_tracker::{QueueOrderStatus, QueueOrderTracker};
 pub use regimes::{MarketRegime, MicrostructureSimulator};
 pub use rng::FastRng;
 
@@ -91,4 +93,68 @@ mod tests {
         // Cleanup
         let _ = std::fs::remove_file(tmp_file);
     }
+
+    #[test]
+    fn test_binary_disk_trade_roundtrip() {
+        use market_microstructure::{Side, Trade};
+        let tmp_file = std::env::temp_dir().join("test_quantum_disk_trade_roundtrip.bin");
+
+        let mut recorder = BinaryDiskRecorder::create(&tmp_file).expect("Recorder create");
+        let t1 = Trade::new(10_000_000, 150.25, 200.0, Side::Buy);
+        let t2 = Trade::new(10_050_000, 150.20, 50.0, Side::Sell);
+
+        recorder.write_trade(&BinaryTradeRecord::from_trade(&t1)).expect("Write t1");
+        recorder.write_trade(&BinaryTradeRecord::from_trade(&t2)).expect("Write t2");
+        let count = recorder.finish().expect("Finish");
+        assert_eq!(count, 2);
+
+        let mut reader = BinaryDiskReader::open(&tmp_file).expect("Reader open");
+        assert_eq!(reader.total_records(), 2);
+
+        let read_t1 = reader.read_next_trade().expect("read t1").expect("some t1");
+        assert_eq!(read_t1.timestamp_ns, t1.timestamp_ns);
+        assert_eq!(read_t1.price, t1.price);
+        assert_eq!(read_t1.size, t1.size);
+        assert_eq!(read_t1.taker_side, Side::Buy);
+
+        let read_t2 = reader.read_next_trade().expect("read t2").expect("some t2");
+        assert_eq!(read_t2.timestamp_ns, t2.timestamp_ns);
+        assert_eq!(read_t2.price, t2.price);
+        assert_eq!(read_t2.size, t2.size);
+        assert_eq!(read_t2.taker_side, Side::Sell);
+
+        assert!(reader.read_next_trade().expect("EOF").is_none());
+        let _ = std::fs::remove_file(tmp_file);
+    }
+
+    #[test]
+    fn test_queue_order_tracker_execution() {
+        use market_microstructure::{Side, Trade};
+
+        // Limit Buy order for 50 shares at 100.0 with 100 shares sitting ahead of us
+        let mut order = QueueOrderTracker::new(100.0, Side::Buy, 50.0, 100.0);
+        assert_eq!(order.status, QueueOrderStatus::Resting);
+        assert_eq!(order.qty_ahead, 100.0);
+
+        // Trade 1: 40 shares sell at 100.0 -> Consumes queue ahead (60 remaining ahead)
+        let fill1 = order.on_trade(&Trade::new(1000, 100.0, 40.0, Side::Sell));
+        assert_eq!(fill1, 0.0);
+        assert_eq!(order.qty_ahead, 60.0);
+        assert_eq!(order.status, QueueOrderStatus::Resting);
+
+        // Trade 2: 80 shares sell at 100.0 -> Consumes remaining 60 ahead + fills 20 of our order
+        let fill2 = order.on_trade(&Trade::new(2000, 100.0, 80.0, Side::Sell));
+        assert_eq!(fill2, 20.0);
+        assert_eq!(order.qty_ahead, 0.0);
+        assert_eq!(order.remaining_size, 30.0);
+        assert_eq!(order.status, QueueOrderStatus::PartiallyFilled);
+
+        // Trade 3: 50 shares sell at 100.0 -> Fills the remaining 30 shares
+        let fill3 = order.on_trade(&Trade::new(3000, 100.0, 50.0, Side::Sell));
+        assert_eq!(fill3, 30.0);
+        assert_eq!(order.remaining_size, 0.0);
+        assert_eq!(order.status, QueueOrderStatus::Filled);
+        assert!(order.is_filled());
+    }
 }
+

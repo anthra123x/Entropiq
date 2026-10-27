@@ -29,26 +29,43 @@ impl QuantumPotential {
         let m = effective_mass.max(1e-4);
         let hbar = Self::HBAR_ANALOG;
 
+        if (energy - barrier_height).abs() < 1e-4 {
+            // Threshold E ~= V0
+            let factor = 1.0 + (m * barrier_height * barrier_width * barrier_width) / (2.0 * hbar * hbar);
+            return (1.0 / factor).clamp(0.0, 1.0);
+        }
+
         if energy < barrier_height {
             // Quantum tunneling regime (E < V0)
             let diff = barrier_height - energy;
             let kappa = (2.0 * m * diff).sqrt() / hbar;
-            let sinh_val = (kappa * barrier_width).sinh();
-            let denom_factor = (barrier_height * barrier_height) / (4.0 * energy * diff);
+            let kappa_a = kappa * barrier_width;
+
+            // Guard against sinh overflow: if kappa_a > 40.0, transmission is physically 0.0
+            if kappa_a > 40.0 {
+                return 0.0;
+            }
+
+            let sinh_val = kappa_a.sinh();
+            let denom_factor = (barrier_height * barrier_height) / (4.0 * energy * diff).max(1e-12);
             let denom = 1.0 + denom_factor * sinh_val * sinh_val;
-            (1.0 / denom).clamp(0.0, 1.0)
-        } else if (energy - barrier_height).abs() < 1e-9 {
-            // Threshold E ~= V0
-            let factor = 1.0 + (m * barrier_height * barrier_width * barrier_width) / (2.0 * hbar * hbar);
-            (1.0 / factor).clamp(0.0, 1.0)
+            if denom.is_nan() || denom <= 0.0 {
+                0.0
+            } else {
+                (1.0 / denom).clamp(0.0, 1.0)
+            }
         } else {
             // Classical over-barrier transmission with quantum interference (E > V0)
             let diff = energy - barrier_height;
             let k = (2.0 * m * diff).sqrt() / hbar;
             let sin_val = (k * barrier_width).sin();
-            let denom_factor = (barrier_height * barrier_height) / (4.0 * energy * diff);
+            let denom_factor = (barrier_height * barrier_height) / (4.0 * energy * diff).max(1e-12);
             let denom = 1.0 + denom_factor * sin_val * sin_val;
-            (1.0 / denom).clamp(0.0, 1.0)
+            if denom.is_nan() || denom <= 0.0 {
+                0.0
+            } else {
+                (1.0 / denom).clamp(0.0, 1.0)
+            }
         }
     }
 
@@ -98,3 +115,30 @@ impl QuantumPotential {
         res
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tunneling_probability_stability() {
+        // Zero energy -> 0.0
+        assert_eq!(QuantumPotential::tunneling_probability(0.0, 100.0, 1.0, 1.0), 0.0);
+
+        // Huge barrier (where old code would sinh overflow to Infinity/NaN)
+        let t_huge = QuantumPotential::tunneling_probability(10.0, 50_000.0, 5.0, 1.0);
+        assert_eq!(t_huge, 0.0);
+        assert!(!t_huge.is_nan());
+
+        // Threshold E == V0
+        let t_thresh = QuantumPotential::tunneling_probability(100.0, 100.0, 1.0, 1.0);
+        assert!(t_thresh > 0.0 && t_thresh <= 1.0);
+        assert!(!t_thresh.is_nan());
+
+        // Over-barrier E > V0
+        let t_over = QuantumPotential::tunneling_probability(150.0, 100.0, 1.0, 1.0);
+        assert!(t_over > 0.0 && t_over <= 1.0);
+        assert!(!t_over.is_nan());
+    }
+}
+
