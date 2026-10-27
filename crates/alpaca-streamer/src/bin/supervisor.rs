@@ -383,6 +383,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Web Dashboard and Render Health-Check Server (Port 10000 / $PORT)
     let web_state = Arc::new(std::sync::RwLock::new(alpaca_streamer::WebDashboardState {
         market_open: initial_market_open,
+        feed: cfg.feed.clone(),
         broker_account: initial_account_label.clone(),
         buying_power: initial_buying_power,
         current_equity: initial_equity,
@@ -812,6 +813,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     toxic_flow: is_toxic || vpin > 0.55,
                     lead_lag_spy_bias: current_market_bias,
                     market_open: market_open_flag.load(Ordering::Relaxed),
+                    feed: cfg.feed.clone(),
                     broker_account: broker_acc_str,
                     buying_power: live_bp_val,
                     current_equity: auditor.current_equity,

@@ -23,9 +23,15 @@ impl EnvConfig {
         let oauth_token = resolve_var("ALPACA_ACCESS_TOKEN", &file_map).filter(|s| !s.is_empty());
         let api_key = resolve_var("ALPACA_API_KEY", &file_map).filter(|s| !s.is_empty());
         let api_secret = resolve_var("ALPACA_API_SECRET", &file_map).filter(|s| !s.is_empty());
-        let feed = resolve_var("ALPACA_FEED", &file_map)
+        let raw_feed = resolve_var("ALPACA_FEED", &file_map)
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "crypto".to_string());
+        // Enforce 24/7 crypto unless explicit override ALPACA_FORCE_EQUITIES=1
+        let feed = if raw_feed.to_lowercase() == "equities" && std::env::var("ALPACA_FORCE_EQUITIES").unwrap_or_default() != "1" {
+            "crypto".to_string()
+        } else {
+            raw_feed
+        };
 
         Self {
             oauth_token,
