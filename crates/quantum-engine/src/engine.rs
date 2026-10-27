@@ -92,8 +92,12 @@ impl QuantumMarketEngine {
         let gamma_q_buy = (p_bid - 0.5).max(0.0) * 4.0;
         let gamma_q_sell = (p_ask - 0.5).max(0.0) * 4.0;
 
+        // DYNAMIC BATH DECOHERENCE: Thermal dephasing couples to order flow toxicity (VPIN)
+        let vpin = self.tracker.vpin;
+        let gamma_dephase = 0.5 + 8.0 * (vpin * vpin);
+
         let h = MarketHamiltonian::build_with_cross_asset(&self.tracker, self.external_index_bias);
-        let jumps = LindbladSolver::market_jump_operators_2x2(1.0, gamma_q_buy, gamma_q_sell);
+        let jumps = LindbladSolver::market_jump_operators_2x2(gamma_dephase, gamma_q_buy, gamma_q_sell);
 
         if let Ok(updated_rho) = LindbladSolver::step_rk4(&self.density_matrix, &h, &jumps, dt_sec.min(0.1).max(0.0001)) {
             self.density_matrix = updated_rho;
@@ -135,10 +139,12 @@ impl QuantumMarketEngine {
         };
 
         // Immediate dissipation injection into density matrix via jump operator
+        let vpin = self.tracker.vpin;
+        let gamma_dephase = 0.5 + 8.0 * (vpin * vpin);
         let gamma_buy = if trade.taker_side == Side::Buy { (trade.size / total_depth).min(2.0) } else { 0.0 };
         let gamma_sell = if trade.taker_side == Side::Sell { (trade.size / total_depth).min(2.0) } else { 0.0 };
 
-        let jumps = LindbladSolver::market_jump_operators_2x2(0.1, gamma_buy, gamma_sell);
+        let jumps = LindbladSolver::market_jump_operators_2x2(gamma_dephase, gamma_buy, gamma_sell);
         let h = MarketHamiltonian::build(&self.tracker);
 
         if let Ok(updated_rho) = LindbladSolver::step_rk4(&self.density_matrix, &h, &jumps, 0.01) {
@@ -172,8 +178,13 @@ impl QuantumMarketEngine {
         let (v_ask, width_ask) = self.tracker.barrier_potential(Side::Buy);
         let (v_bid, width_bid) = self.tracker.barrier_potential(Side::Sell);
 
-        let t_ask = QuantumPotential::tunneling_probability(kinetic_energy, v_ask, width_ask, 1.0);
-        let t_bid = QuantumPotential::tunneling_probability(kinetic_energy, v_bid, width_bid, 1.0);
+        // Effective mass scales with book viscosity (toxicity + spread width)
+        let vpin = self.tracker.vpin;
+        let spread_ticks = (quote.spread() / self.tracker.tick_size).max(1.0);
+        let effective_mass = 1.0 + 3.0 * vpin + (spread_ticks - 1.0) * 0.25;
+
+        let t_ask = QuantumPotential::tunneling_probability(kinetic_energy, v_ask, width_ask, effective_mass);
+        let t_bid = QuantumPotential::tunneling_probability(kinetic_energy, v_bid, width_bid, effective_mass);
         let state_bias = t_ask - t_bid;
 
         // 3. Fluid dynamics & liquidity cavitation
@@ -203,8 +214,7 @@ impl QuantumMarketEngine {
             variance += diff * diff * depth_probs[i];
         }
 
-        let vpin = self.tracker.vpin;
-        let is_toxic_flow = vpin > 0.75;
+        let is_toxic_flow = vpin >= 0.55;
 
         let mut snapshot = QuantumAnalyticsSnapshot {
             timestamp_ns: quote.timestamp_ns,

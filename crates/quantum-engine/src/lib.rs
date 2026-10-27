@@ -55,4 +55,33 @@ mod tests {
         // Thermal noise -> NeutralHold
         assert_eq!(intent, OrderIntent::NeutralHold);
     }
+
+    #[test]
+    fn test_physical_consistency_no_breakout_during_toxic_or_supersonic_flow() {
+        let mut engine = QuantumMarketEngine::new(0.01);
+        let q = Quote::new(1_000_000_000, 100.0, 10.0, 100.05, 10.0);
+        let mut snap = engine.on_quote(q).expect("Snapshot");
+
+        // Case 1: Supersonic flow (Mach >= 1.0) with low coherence
+        snap.fluid_metrics.mach_number = 4.5;
+        snap.quantum_coherence = 0.01;
+        snap.vpin = 0.80;
+        snap.is_toxic_flow = true;
+        snap.tunneling_prob_ask = 0.95; // high tunneling must NOT trick classifier into breakout
+
+        let (phase, _) = PhaseClassifier::classify(&snap);
+        assert_eq!(phase, MarketQuantumPhase::LiquidityCavitation);
+
+        let intent = SmartOrderRouter::route_intent(&snap, 100.0, 100.05, 1.0);
+        assert!(matches!(intent, OrderIntent::EmergencyCancelAll { .. }));
+
+        // Case 2: Zero coherence cannot declare SuperconductingBreakout
+        snap.fluid_metrics.mach_number = 0.5; // subsonic
+        snap.quantum_coherence = 0.05; // decohered!
+        snap.vpin = 0.20;
+        snap.is_toxic_flow = false;
+        let (phase2, _) = PhaseClassifier::classify(&snap);
+        assert_ne!(phase2, MarketQuantumPhase::SuperconductingBreakout);
+        assert_eq!(phase2, MarketQuantumPhase::ThermalNoise);
+    }
 }

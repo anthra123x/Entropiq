@@ -542,10 +542,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         OrderIntent::EmergencyCancelAll { reason } => {
                             signal_confirmations.remove(&sym);
-                            if snap.vpin > 0.55 {
+                            if snap.active_phase == MarketQuantumPhase::LiquidityCavitation {
                                 println!(
-                                    " \x1b[1;33m[SOR ESCUDO]\x1b[0m Entrada prevenida en {}: {} (VPIN: {:.3})",
-                                    sym, reason, snap.vpin
+                                    " \x1b[1;33m[SOR REPOSO]\x1b[0m Neutralizacion en {}: {} | Mach: {:.2} | S: {:.3}",
+                                    sym, reason, snap.fluid_metrics.mach_number, snap.normalized_entropy
                                 );
                             }
                         }
