@@ -394,8 +394,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[+] Supervisor iniciado. Monitorizando telemetria, memoria y tiempos de calculo...");
     println!("[+] Especializacion de Mercado: WALL STREET EQUITIES IEX (SPY, QQQ, NVDA, AAPL, TSLA...)");
     println!("[+] Lead-Lag Cuantico: SPY/QQQ Macro Index Bias -> Arbitraje Estadistico en Acciones");
-    println!("[+] Arquitectura Pura: Motor Cuantico alimentado 100% con datos reales (sin envenenamiento sintetico)");
-    println!("[+] Seguridad: SmartOrderRouter (SOR) activo con Escudo VPIN (<0.55) y Ventana de Confirmacion");
+    println!("[+] Dimensionamiento Institucional: Kelly 0.75% base (~$745 USD), Cap 1.5% (~$1,490 USD)");
+    println!("[+] Parametros de Ejecucion: TP=+0.35% (decay +0.18%), SL=-0.20%, R:R=1.75:1");
     println!("------------------------------------------------------------------------------------------\n");
 
     let is_live_mode = alpaca_connected.load(Ordering::Relaxed) || live_symbols.len() > 0;
@@ -448,28 +448,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         live_positions.remove(&sym);
                         last_broker_close_time.insert(sym.clone(), Instant::now());
                     }
-                // 1. Take-Profit (+0.18% target gain, or +0.08% if coherence decays below 0.20)
-                } else if return_frac >= 0.0018 || (return_frac >= 0.0008 && snap.quantum_coherence < 0.20) {
+                // 1. Take-Profit (+0.35% target gain, or +0.18% if coherence decays below 0.20)
+                } else if return_frac >= 0.0035 || (return_frac >= 0.0018 && snap.quantum_coherence < 0.20) {
                     let exit_side = if pos_side_buy { "sell" } else { "buy" };
                     if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None)).await {
                         let profit_usd = return_frac * pos_notional;
                         auditor.record_trade(profit_usd, return_frac);
                         println!(
-                            " \x1b[1;32m[ALPACA TAKE-PROFIT]\x1b[0m Posicion cerrada en {}: +{:.2}% | Ganancia: +${:.3} USD",
+                            " \x1b[1;32m[ALPACA TAKE-PROFIT]\x1b[0m Posicion cerrada en {}: +{:.2}% | Ganancia: +${:.2} USD",
                             sym, return_frac * 100.0, profit_usd
                         );
                         live_positions.remove(&sym);
                         last_broker_close_time.insert(sym.clone(), Instant::now());
                     }
-                // 2. Stop-Loss (-0.12% hard risk cutoff)
-                } else if return_frac <= -0.0012 {
+                // 2. Stop-Loss (-0.20% hard risk cutoff)
+                } else if return_frac <= -0.0020 {
                     let exit_side = if pos_side_buy { "sell" } else { "buy" };
                     if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None)).await {
                         let loss_usd = return_frac * pos_notional;
                         auditor.record_trade(loss_usd, return_frac);
                         println!(
-                            " \x1b[1;31m[ALPACA STOP-LOSS]\x1b[0m Riesgo cortado en {}: {:.2}% | Perdida: ${:.3} USD",
-                            sym, return_frac * 100.0, loss_usd
+                            " \x1b[1;31m[ALPACA STOP-LOSS]\x1b[0m Riesgo cortado en {}: {:.2}% | Perdida: -${:.2} USD",
+                            sym, return_frac * 100.0, loss_usd.abs()
                         );
                         live_positions.remove(&sym);
                         last_broker_close_time.insert(sym.clone(), Instant::now());
@@ -515,8 +515,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let order_side_str = if side_buy { "buy" } else { "sell" };
 
                                 let live_eq = auditor.current_equity.max(1000.0);
-                                let max_notional = live_eq * 0.02; // 2% equity cap
-                                let notional = (20.0 * kelly_f * size_ratio).min(max_notional).max(10.0);
+                                // Institutional Kelly Sizing: Base allocation 0.75% of equity, capped at 1.5%
+                                let base_notional = live_eq * 0.0075;
+                                let max_notional = live_eq * 0.015;
+                                let notional = (base_notional * kelly_f * size_ratio).min(max_notional).max(50.0);
                                 let notional = (notional * 100.0).round() / 100.0;
                                 let qty = ((notional / snap.mid_price) * 100.0).round() / 100.0;
                                 let qty = qty.max(0.01);
