@@ -1,4 +1,6 @@
 /// Institutional-grade quantitative auditor implementing E[R], Sharpe, Calmar, and Drawdown.
+/// DEF-07 fix: Uses Welford's online algorithm for O(1) running mean/variance.
+/// Eliminates O(n) iteration on returns_history for every Sharpe ratio call.
 #[derive(Debug, Clone, Default)]
 pub struct PortfolioAuditor {
     pub total_trades: u64,
@@ -11,7 +13,10 @@ pub struct PortfolioAuditor {
     pub max_drawdown: f64,
     pub current_equity: f64,
 
-    pub returns_history: Vec<f64>,
+    // Welford online running statistics — no history buffer needed
+    welford_count: u64,
+    welford_mean: f64,
+    welford_m2: f64,  // sum of squared deviations from mean
 }
 
 impl PortfolioAuditor {
@@ -25,7 +30,9 @@ impl PortfolioAuditor {
             peak_equity: initial_capital,
             max_drawdown: 0.0,
             current_equity: initial_capital,
-            returns_history: Vec::with_capacity(50_000),
+            welford_count: 0,
+            welford_mean: 0.0,
+            welford_m2: 0.0,
         }
     }
 
@@ -55,12 +62,12 @@ impl PortfolioAuditor {
             self.sum_losing_returns += return_fraction.abs();
         }
 
-        if self.returns_history.len() < 10_000 {
-            self.returns_history.push(return_fraction);
-        } else {
-            let idx = (self.total_trades as usize) % 10_000;
-            self.returns_history[idx] = return_fraction;
-        }
+        // Welford online update — O(1)
+        self.welford_count += 1;
+        let delta = return_fraction - self.welford_mean;
+        self.welford_mean += delta / self.welford_count as f64;
+        let delta2 = return_fraction - self.welford_mean;
+        self.welford_m2 += delta * delta2;
     }
 
     /// Win Rate in range [0.0, 1.0]
@@ -97,18 +104,14 @@ impl PortfolioAuditor {
         }
     }
 
-    /// Annualized Sharpe Ratio: (mean / std) * sqrt(N_periods_per_year)
+    /// Annualized Sharpe Ratio — O(1) via Welford online variance.
     pub fn sharpe_ratio(&self, annualization_factor: f64) -> f64 {
-        if self.returns_history.len() < 2 {
+        if self.welford_count < 2 {
             return 0.0;
         }
-        let n = self.returns_history.len() as f64;
-        let mean = self.returns_history.iter().sum::<f64>() / n;
-
-        let var = self.returns_history.iter().map(|&r| (r - mean) * (r - mean)).sum::<f64>() / (n - 1.0);
-        let std = var.sqrt();
-
-        if std < 1e-9 { 0.0 } else { (mean / std) * annualization_factor.sqrt() }
+        let variance = self.welford_m2 / (self.welford_count - 1) as f64;
+        let std = variance.sqrt();
+        if std < 1e-9 { 0.0 } else { (self.welford_mean / std) * annualization_factor.sqrt() }
     }
 
     /// Calmar Ratio: CAGR / Max Drawdown
@@ -131,3 +134,30 @@ impl PortfolioAuditor {
         (f_star.max(0.1) * 0.5 * (0.5 + 0.5 * coherence)).clamp(0.2, 3.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sharpe_welford_online() {
+        let mut auditor = PortfolioAuditor::new(100_000.0);
+        // 5 identical returns: mean=0.01, std=0 -> guard returns 0
+        for _ in 0..5 {
+            auditor.record_trade(10.0, 0.01);
+        }
+        // All same return: std dev ≈ 0 -> Sharpe guard = 0
+        let s = auditor.sharpe_ratio(252.0);
+        assert_eq!(s, 0.0);
+
+        // Mixed returns
+        let mut auditor2 = PortfolioAuditor::new(100_000.0);
+        auditor2.record_trade(100.0, 0.02);
+        auditor2.record_trade(-50.0, -0.01);
+        auditor2.record_trade(75.0, 0.015);
+        let s2 = auditor2.sharpe_ratio(252.0);
+        assert!(s2 > 0.0);
+    }
+}
+
+

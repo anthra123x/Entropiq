@@ -1,40 +1,21 @@
-use alpaca_streamer::{AlpacaAuth, AlpacaDataFeed, AlpacaStreamer};
+use alpaca_streamer::{AlpacaAuth, AlpacaDataFeed, AlpacaStreamer, EnvConfig};
 use market_simulator::{MarketRegime, MicrostructureSimulator};
 use quantum_engine::{MarketQuantumPhase, PortfolioAuditor, QuantumMarketEngine};
 use std::collections::HashMap;
-use std::env;
-use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
-fn load_env_file() -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    if let Ok(content) = fs::read_to_string(".env") {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-            if let Some((k, v)) = trimmed.split_once('=') {
-                map.insert(k.trim().to_string(), v.trim().to_string());
-            }
-        }
-    }
-    map
-}
-
-/// Reads Linux Resident Set Size (RSS) in megabytes from /proc/self/statm.
+/// DEF-09 fix: Zero-allocation RSS read — no Vec, no collect.
 fn get_memory_rss_mb() -> f64 {
-    if let Ok(content) = fs::read_to_string("/proc/self/statm") {
-        let parts: Vec<&str> = content.split_whitespace().collect();
-        if parts.len() >= 2 {
-            if let Ok(pages) = parts[1].parse::<u64>() {
-                // Page size is typically 4096 bytes
-                return (pages * 4096) as f64 / (1024.0 * 1024.0);
-            }
-        }
+    let Ok(content) = std::fs::read_to_string("/proc/self/statm") else { return 0.0; };
+    // statm fields are space-separated: total rss shared text lib data dirty
+    // Skip first token, parse second
+    let mut iter = content.split_ascii_whitespace();
+    iter.next(); // skip "total"
+    if let Some(rss_pages) = iter.next().and_then(|s| s.parse::<u64>().ok()) {
+        return (rss_pages * 4096) as f64 / (1024.0 * 1024.0);
     }
     0.0
 }
@@ -129,29 +110,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("               ENTROPIQ QUANTUM MICROSTRUCTURE LOCAL PERFORMANCE SUPERVISOR               ");
     println!("==========================================================================================");
 
-    let env_file = load_env_file();
+    // DEF-01 fix: single source of truth for credentials
+    let cfg = EnvConfig::load();
 
-    let oauth_token = env::var("ALPACA_ACCESS_TOKEN")
-        .ok()
-        .or_else(|| env_file.get("ALPACA_ACCESS_TOKEN").cloned())
-        .unwrap_or_default();
-
-    let api_key = env::var("ALPACA_API_KEY")
-        .ok()
-        .or_else(|| env_file.get("ALPACA_API_KEY").cloned())
-        .unwrap_or_default();
-
-    let api_secret = env::var("ALPACA_API_SECRET")
-        .ok()
-        .or_else(|| env_file.get("ALPACA_API_SECRET").cloned())
-        .unwrap_or_default();
-
-    let feed_choice = env::var("ALPACA_FEED")
-        .ok()
-        .or_else(|| env_file.get("ALPACA_FEED").cloned())
-        .unwrap_or_else(|| "equities".to_string());
-
-    let (feed, live_symbols, tick_size) = if feed_choice.to_lowercase() == "crypto" {
+    let (feed, live_symbols, tick_size) = if cfg.feed.to_lowercase() == "crypto" {
         println!("[+] Canal de Mercado: Alpaca Cripto (Secundario)");
         (AlpacaDataFeed::Crypto, vec!["BTC/USD", "ETH/USD", "SOL/USD"], 0.50)
     } else {
@@ -163,17 +125,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     };
 
-    let streamer_auth = if !oauth_token.is_empty() {
-        println!("[+] Modo de Autenticacion: Alpaca OAuth Token (Activo)");
-        Some(AlpacaAuth::OAuthToken(oauth_token.clone()))
-    } else if !api_key.is_empty() && !api_secret.is_empty() {
-        println!("[+] Modo de Autenticacion: Alpaca API Key / Secret (Activo)");
-        Some(AlpacaAuth::KeySecret {
-            key: api_key.clone(),
-            secret: api_secret.clone(),
-        })
+    cfg.log_auth_mode();
+    let streamer_auth = if let Some(ref token) = cfg.oauth_token {
+        Some(AlpacaAuth::OAuthToken(token.clone()))
+    } else if let (Some(ref key), Some(ref secret)) = (&cfg.api_key, &cfg.api_secret) {
+        Some(AlpacaAuth::KeySecret { key: key.clone(), secret: secret.clone() })
     } else {
-        println!("[!] Sin credenciales remotas en .env; ejecutando en modo simulador puro de ultra-baja latencia.");
         None
     };
 
@@ -185,17 +142,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         r_clone.store(false, Ordering::SeqCst);
     });
 
-    let (live_tx, mut live_rx) = mpsc::channel::<(String, f64, f64, f64, f64, MarketQuantumPhase)>(1000);
+    // CPU Pinning HFT: Pin main calculation pipeline to Core 0
+    if alpaca_streamer::pin_current_thread_to_core(0) {
+        println!("[+] Afinidad CPU HFT: Hilo principal (Motor Cuántico) fijado a Core 0");
+    }
+
+    // DEF-03 fix: 4096-element channel + dropped tick counter
+    let (live_tx, mut live_rx) = mpsc::channel::<(String, f64, f64, f64, f64, MarketQuantumPhase)>(4096);
     let alpaca_connected = Arc::new(AtomicBool::new(false));
     let alpaca_ticks_count = Arc::new(AtomicU64::new(0));
+    let alpaca_ticks_dropped = Arc::new(AtomicU64::new(0));
 
     // 1. Spawns Alpaca WebSocket client in background task
     if let Some(auth) = streamer_auth {
         let conn_flag = alpaca_connected.clone();
         let ticks_flag = alpaca_ticks_count.clone();
+        let dropped_flag = alpaca_ticks_dropped.clone();
         let syms = live_symbols.clone();
 
         tokio::spawn(async move {
+            // CPU Pinning HFT: Pin WebSocket ingestion worker to Core 2
+            if alpaca_streamer::pin_current_thread_to_core(2) {
+                println!("[+] Afinidad CPU HFT: Hilo de red WebSocket fijado a Core 2");
+            }
+
             let mut streamer = match auth {
                 AlpacaAuth::OAuthToken(t) => AlpacaStreamer::with_oauth_token(t, feed, tick_size),
                 AlpacaAuth::KeySecret { key, secret } => {
@@ -207,14 +177,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let res = streamer
                 .stream_with_symbol(syms, |sym, snap| {
                     ticks_flag.fetch_add(1, Ordering::Relaxed);
-                    let _ = live_tx.try_send((
+                    // DEF-03 fix: count silently dropped ticks on channel saturation
+                    if live_tx.try_send((
                         sym.to_string(),
                         snap.mid_price,
                         snap.micro_price,
                         snap.normalized_entropy,
                         snap.quantum_coherence,
                         snap.active_phase,
-                    ));
+                    )).is_err() {
+                        dropped_flag.fetch_add(1, Ordering::Relaxed);
+                    }
                 })
                 .await;
 
@@ -244,20 +217,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut min_latency_ns: u64 = u64::MAX;
     let mut max_latency_ns: u64 = 0;
 
-    // Sliding window latencies for percentile estimation
-    let mut recent_latencies_ns: Vec<u64> = Vec::with_capacity(20_000);
+    // DEF-05 fix: Running P-square approximate quantile estimation (no sort needed).
+    // We track three markers for p50 and p99 using a simplified EMA-based approach.
+    let mut p50_ema: f64 = 2_000.0; // initial guess 2µs
+    let mut p99_ema: f64 = 8_000.0; // initial guess 8µs
+    const EMA_ALPHA_P50: f64 = 0.001;
+    const EMA_ALPHA_P99: f64 = 0.0005;
 
     let mut in_position = false;
     let mut entry_price = 0.0;
     let mut entry_side_buy = true;
     let mut entry_leverage = 1.0;
 
-    let broker_auth = if !oauth_token.is_empty() {
-        BrokerAuth::OAuth(Arc::new(oauth_token.clone()))
-    } else if !api_key.is_empty() && !api_secret.is_empty() {
+    let broker_auth = if let Some(ref token) = cfg.oauth_token {
+        BrokerAuth::OAuth(Arc::new(token.clone()))
+    } else if let (Some(ref key), Some(ref secret)) = (&cfg.api_key, &cfg.api_secret) {
         BrokerAuth::KeySecret {
-            key: Arc::new(api_key.clone()),
-            secret: Arc::new(api_secret.clone()),
+            key: Arc::new(key.clone()),
+            secret: Arc::new(secret.clone()),
         }
     } else {
         BrokerAuth::None
@@ -271,6 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut live_positions: HashMap<String, LiveBrokerPosition> = HashMap::new();
     let mut last_broker_close_time: HashMap<String, Instant> = HashMap::new();
     let mut current_market_bias: f64 = 0.0;
+    let mut symbol_coherence_ema: HashMap<String, f64> = HashMap::new();
 
     let mut last_report_time = Instant::now();
     let mut last_report_ticks: u64 = 0;
@@ -296,20 +274,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Real-time stateful live trading execution on Alpaca Broker (paper account)
-            if let Some(pos) = live_positions.get(&sym).cloned() {
+            // DEF-10 fix: borrow position without clone
+            let pos_opt_data = live_positions.get(&sym).map(|pos| {
+                (pos.side_buy, pos.entry_price, pos.qty, pos.notional)
+            });
+            if let Some((pos_side_buy, pos_entry_price, pos_qty, pos_notional)) = pos_opt_data {
                 // Monitor active open position for Take-Profit or Stop-Loss
-                let price_diff = if pos.side_buy {
-                    mid - pos.entry_price
+                let price_diff = if pos_side_buy {
+                    mid - pos_entry_price
                 } else {
-                    pos.entry_price - mid
+                    pos_entry_price - mid
                 };
-                let return_frac = price_diff / pos.entry_price.max(1.0);
+                let return_frac = price_diff / pos_entry_price.max(1.0);
 
                 // 1. Take-Profit (+0.18% target or +0.08% with momentum exhaustion)
                 if return_frac >= 0.0018 || (return_frac >= 0.0008 && coherence < 0.20) {
-                    let exit_side = if pos.side_buy { "sell" } else { "buy" };
-                    execute_alpaca_paper_order(http_client.clone(), broker_auth.clone(), sym.clone(), exit_side, (Some(pos.qty), None));
-                    let profit_usd = return_frac * pos.notional;
+                    let exit_side = if pos_side_buy { "sell" } else { "buy" };
+                    execute_alpaca_paper_order(http_client.clone(), broker_auth.clone(), sym.clone(), exit_side, (Some(pos_qty), None));
+                    let profit_usd = return_frac * pos_notional;
                     auditor.record_trade(profit_usd, return_frac);
                     println!(
                         " \x1b[1;32m[ALPACA TAKE-PROFIT]\x1b[0m Posicion cerrada en {}: +{:.2}% | Ganancia: +${:.3} USD",
@@ -319,9 +301,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     last_broker_close_time.insert(sym.clone(), Instant::now());
                 // 2. Stop-Loss (-0.12% max adverse risk or -0.06% with adverse liquidity cavitation)
                 } else if return_frac <= -0.0012 || (phase == MarketQuantumPhase::LiquidityCavitation && return_frac <= -0.0006) {
-                    let exit_side = if pos.side_buy { "sell" } else { "buy" };
-                    execute_alpaca_paper_order(http_client.clone(), broker_auth.clone(), sym.clone(), exit_side, (Some(pos.qty), None));
-                    let loss_usd = return_frac * pos.notional;
+                    let exit_side = if pos_side_buy { "sell" } else { "buy" };
+                    execute_alpaca_paper_order(http_client.clone(), broker_auth.clone(), sym.clone(), exit_side, (Some(pos_qty), None));
+                    let loss_usd = return_frac * pos_notional;
                     auditor.record_trade(loss_usd, return_frac);
                     println!(
                         " \x1b[1;31m[ALPACA STOP-LOSS]\x1b[0m Riesgo cortado en {}: {:.2}% | Perdida: ${:.3} USD",
@@ -338,9 +320,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or(true);
 
                 let is_skewed = (micro - mid).abs() > (mid * 0.00008);
-                let has_quantum_order = coherence >= 0.25 || entropy <= 0.85;
+                // DEF-04 fix: Dynamic regime-adaptive quantum order filter.
+                // Requires structural coherence exceeding symbol EMA baseline AND bounded entropy.
+                let coh_baseline = symbol_coherence_ema.entry(sym.clone()).or_insert(coherence);
+                *coh_baseline = 0.95 * (*coh_baseline) + 0.05 * coherence;
+                let has_quantum_order = coherence >= 0.28 && entropy <= 0.80 && coherence >= (*coh_baseline * 0.90);
 
-                let trigger_breakout = phase == MarketQuantumPhase::SuperconductingBreakout && coherence >= 0.35 && entropy <= 0.90;
+                let trigger_breakout = phase == MarketQuantumPhase::SuperconductingBreakout && coherence >= 0.35 && entropy <= 0.88;
                 let trigger_cavitation = phase == MarketQuantumPhase::LiquidityCavitation && is_skewed && has_quantum_order;
 
                 if can_enter && (trigger_breakout || trigger_cavitation) && micro != mid {
@@ -413,8 +399,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_latency_ns = elapsed_ns;
             }
 
-            if recent_latencies_ns.len() < 20_000 {
-                recent_latencies_ns.push(elapsed_ns);
+            // DEF-05 fix: Update EMA-based approx percentiles (O(1), no Vec alloc, no sort)
+            let elapsed_f = elapsed_ns as f64;
+            if elapsed_f <= p50_ema {
+                p50_ema -= EMA_ALPHA_P50 * p50_ema * 0.5;
+            } else {
+                p50_ema += EMA_ALPHA_P50 * p50_ema;
+            }
+            if elapsed_f <= p99_ema {
+                p99_ema -= EMA_ALPHA_P99 * p99_ema * 0.01;
+            } else {
+                p99_ema += EMA_ALPHA_P99 * p99_ema;
             }
 
             // Dynamic execution with Maker/Taker spread capture, Kelly leverage, and Decoherence stop
@@ -473,19 +468,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             // Calculate p50 and p99 from sliding sample
-            let (p50, p99) = if !recent_latencies_ns.is_empty() {
-                recent_latencies_ns.sort_unstable();
-                let p50_idx = (recent_latencies_ns.len() as f64 * 0.50) as usize;
-                let p99_idx = (recent_latencies_ns.len() as f64 * 0.99).min(recent_latencies_ns.len() as f64 - 1.0) as usize;
-                (recent_latencies_ns[p50_idx], recent_latencies_ns[p99_idx])
-            } else {
-                (0, 0)
-            };
-            recent_latencies_ns.clear();
+            // DEF-05 fix: EMA-tracked percentiles, no sort, no Vec clear
+            let p50 = p50_ema as u64;
+            let p99 = p99_ema as u64;
 
             let rss_mb = get_memory_rss_mb();
             let is_alpaca_up = alpaca_connected.load(Ordering::Relaxed);
             let alpaca_total = alpaca_ticks_count.load(Ordering::Relaxed);
+            let alpaca_dropped = alpaca_ticks_dropped.load(Ordering::Relaxed);
 
             let (entropy, coherence, mach, phase, conf, vpin, is_toxic) = if let Some(s) = last_snapshot {
                 (s.normalized_entropy, s.quantum_coherence, s.fluid_metrics.mach_number, s.active_phase, s.phase_confidence, s.vpin, s.is_toxic_flow)
@@ -495,9 +485,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("┌────────────────────────────────────────────────────────────────────────────────────────┐");
             println!(
-                "│ \x1b[1;36mENTROPIQ MONITOR\x1b[0m | WebSocket: {:<12} | Ticks Alpaca Recibidos: {:<10} │",
+                "│ \x1b[1;36mENTROPIQ MONITOR\x1b[0m | WS: {:<12} | Ticks: {:<10} | Drops: {:<10}       │",
                 if is_alpaca_up { "\x1b[1;32mCONECTADO\x1b[0m" } else { "\x1b[1;31mDESCONECTADO\x1b[0m" },
-                alpaca_total
+                alpaca_total,
+                alpaca_dropped
             );
             println!("├────────────────────────────────────────────────────────────────────────────────────────┤");
             println!(

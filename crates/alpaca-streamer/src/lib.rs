@@ -1,8 +1,12 @@
+pub mod affinity;
 pub mod client;
+pub mod config;
 pub mod model;
 
+pub use affinity::pin_current_thread_to_core;
 pub use client::{AlpacaAuth, AlpacaDataFeed, AlpacaStreamer};
-pub use model::{AlpacaQuote, AlpacaStreamMessage, AlpacaTrade};
+pub use config::EnvConfig;
+pub use model::{parse_alpaca_timestamp_ns, AlpacaQuote, AlpacaStreamMessage, AlpacaTrade};
 
 #[cfg(test)]
 mod tests {

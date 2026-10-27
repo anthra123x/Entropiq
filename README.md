@@ -49,9 +49,11 @@ Entropiq/
 │   │   ├── binary_feed.rs                  # 32-byte cache-aligned binary records
 │   │   └── binary_disk.rs                  # Page-aligned binary disk recorder (1.4 GB/s)
 │   └── alpaca-streamer/                    # Asynchronous real-time market data ingestion
-│       ├── model.rs                        # Alpaca Market Data v2 message models
-│       ├── client.rs                       # Resilient WebSocket client with backoff & Lead-Lag
-│       └── bin/supervisor.rs               # Production supervisor with connection pooling & live auditor
+│       ├── affinity.rs                     # Institutional Linux CPU core pinning & thread isolation
+│       ├── config.rs                       # Defensive credential & environment loader (quote strip, safe fallback)
+│       ├── model.rs                        # Alpaca Market Data v2 models (nanosecond RFC3339 parser)
+│       ├── client.rs                       # Resilient WebSocket client with backoff & O(1) Lead-Lag pull
+│       └── bin/supervisor.rs               # Production supervisor with HFT core pinning & O(1) telemetry
 ```
 
 ---
@@ -121,11 +123,12 @@ Evaluated across 1,000,000 ticks in release mode on Linux x86_64:
 
 | Component / Pipeline | Latency (p50 / p99) | Throughput | Allocation Profile |
 | :--- | :--- | :--- | :--- |
-| Core Analytics Pipeline | 182 ns / 280 ns | 5.49M ops/sec | Zero heap allocation |
-| Full Physics (Lindblad RK4 + CTQW) | 952 ns / 1.35 µs | 1.05M ops/sec | Zero heap allocation |
-| Complete 1M-Tick Pipeline (End-to-End) | 2.80 µs (p50) / 5.19 µs (p99) | 335k - 524k ticks/sec | Zero heap allocation (3.1 MB RSS) |
-| Binary Disk Persistence Write (SSD) | 21 ns / rec | 45.9M IOPS (1,401 MB/s) | OS Page-aligned (64 KB) |
-| Binary Disk Persistence Read (SSD) | 9.9 ns / rec | 100.1M IOPS (3,054 MB/s) | OS Page-aligned (64 KB) |
+| Core Analytics Pipeline | 181 ns / 280 ns | 5.52M ops/sec | Zero heap allocation |
+| Full Physics (Lindblad RK4 + CTQW) | 977 ns / 1.35 µs | 1.02M ops/sec | Zero heap allocation |
+| Complete 1M-Tick Pipeline (End-to-End) | 2.80 µs (p50) / 5.17 µs (p99) | 341k - 580k ticks/sec | Zero heap allocation (3.09 MB RSS) |
+| Production Supervisor (Live Stream + HFT Pinning) | 5.50 µs (p50) / 9.68 µs (p99) | 50k ticks/sec | 7.84 MB RSS, Cores 0 & 2 Pinned |
+| Binary Disk Persistence Write (SSD) | 29.5 ns / rec | 33.9M IOPS (1,035 MB/s) | OS Page-aligned (64 KB) |
+| Binary Disk Persistence Read (SSD) | 12.3 ns / rec | 80.9M IOPS (2,471 MB/s) | OS Page-aligned (64 KB) |
 
 ---
 
@@ -160,7 +163,7 @@ Results from a 1,000,000 tick continuous execution backtest across cyclic micros
 Compile and execute test suites and benchmarks:
 
 ```bash
-# Execute full workspace unit test suite (20/20 passing)
+# Execute full workspace unit test suite (25/25 passing)
 cargo test --workspace
 
 # Benchmark Suite: Institutional 4-Layer Performance & Latency Audit (1,000,000 Ticks)

@@ -25,6 +25,7 @@ pub struct AlpacaStreamer {
     feed: AlpacaDataFeed,
     default_tick_size: f64,
     engines: HashMap<String, QuantumMarketEngine>,
+    macro_index_bias: f64,
 }
 
 impl AlpacaStreamer {
@@ -34,6 +35,7 @@ impl AlpacaStreamer {
             feed,
             default_tick_size: tick_size,
             engines: HashMap::new(),
+            macro_index_bias: 0.0,
         }
     }
 
@@ -43,6 +45,7 @@ impl AlpacaStreamer {
             feed,
             default_tick_size: tick_size,
             engines: HashMap::new(),
+            macro_index_bias: 0.0,
         }
     }
 
@@ -99,7 +102,9 @@ impl AlpacaStreamer {
                         }
                     }
 
-                    // 2. Send Authentication (Key/Secret or OAuth Bearer Token)
+                    // 2. Send Authentication
+                    // DEF-08 fix: OAuth Bearer uses the `token` field per Alpaca v2 protocol.
+                    // Key/Secret auth uses `key` + `secret` fields.
                     let auth_msg = match &self.auth {
                         AlpacaAuth::KeySecret { key, secret } => AuthMessage {
                             action: "auth",
@@ -109,9 +114,9 @@ impl AlpacaStreamer {
                         },
                         AlpacaAuth::OAuthToken(token) => AuthMessage {
                             action: "auth",
-                            key: Some("oauth"),
-                            secret: Some(token.as_str()),
-                            token: None,
+                            key: None,
+                            secret: None,
+                            token: Some(token.as_str()),
                         },
                     };
                     if let Ok(auth_json) = serde_json::to_string(&auth_msg) {
@@ -168,6 +173,7 @@ impl AlpacaStreamer {
                                     for m in messages {
                                         Self::process_message(
                                             &mut self.engines,
+                                            &mut self.macro_index_bias,
                                             self.default_tick_size,
                                             m,
                                             current_time_ns,
@@ -179,6 +185,7 @@ impl AlpacaStreamer {
                                     if let Ok(single) = serde_json::from_str::<AlpacaStreamMessage>(&text) {
                                         Self::process_message(
                                             &mut self.engines,
+                                            &mut self.macro_index_bias,
                                             self.default_tick_size,
                                             single,
                                             current_time_ns,
@@ -222,6 +229,7 @@ impl AlpacaStreamer {
 
     fn process_message<F>(
         engines: &mut HashMap<String, QuantumMarketEngine>,
+        macro_index_bias: &mut f64,
         default_tick_size: f64,
         msg: AlpacaStreamMessage,
         current_time_ns: u64,
@@ -233,30 +241,27 @@ impl AlpacaStreamer {
             AlpacaStreamMessage::Quote(q) => {
                 let quote = q.to_microstructure_quote(current_time_ns);
                 let is_macro_index = q.symbol == "SPY" || q.symbol == "QQQ";
-                let macro_bias = if is_macro_index {
+                if is_macro_index {
                     let mid = quote.mid_price();
                     let micro = quote.micro_price();
-                    Some(((micro - mid) / (mid * 0.00005)).clamp(-1.0, 1.0))
-                } else {
-                    None
-                };
+                    *macro_index_bias = ((micro - mid) / (mid * 0.00005)).clamp(-1.0, 1.0);
+                }
 
                 let engine = Self::get_engine_mut(engines, &q.symbol, default_tick_size);
+                if !is_macro_index {
+                    // DEF-06 fix: O(1) lazy pull of current macro bias instead of O(N) iteration
+                    engine.set_external_index_bias(*macro_index_bias);
+                }
                 if let Some(snap) = engine.on_quote(quote) {
                     on_snapshot(&q.symbol, &snap);
                 }
-
-                // Propagate lead-lag macro index bias to all other equities engines in real time
-                if let Some(bias) = macro_bias {
-                    for (sym, eng) in engines.iter_mut() {
-                        if sym != "SPY" && sym != "QQQ" {
-                            eng.set_external_index_bias(bias);
-                        }
-                    }
-                }
             }
             AlpacaStreamMessage::Trade(t) => {
+                let is_macro_index = t.symbol == "SPY" || t.symbol == "QQQ";
                 let engine = Self::get_engine_mut(engines, &t.symbol, default_tick_size);
+                if !is_macro_index {
+                    engine.set_external_index_bias(*macro_index_bias);
+                }
                 let mid = engine
                     .tracker
                     .current_quote

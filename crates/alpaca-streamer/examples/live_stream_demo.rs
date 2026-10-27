@@ -1,23 +1,4 @@
-use alpaca_streamer::{AlpacaDataFeed, AlpacaStreamer};
-use std::collections::HashMap;
-use std::env;
-use std::fs;
-
-fn load_env_file() -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    if let Ok(content) = fs::read_to_string(".env") {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-            if let Some((k, v)) = trimmed.split_once('=') {
-                map.insert(k.trim().to_string(), v.trim().to_string());
-            }
-        }
-    }
-    map
-}
+use alpaca_streamer::{AlpacaDataFeed, AlpacaStreamer, EnvConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,27 +6,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("              ALPACAMARKETS REAL-TIME QUANTUM MICROSTRUCTURE STREAMER                     ");
     println!("==========================================================================================");
 
-    let env_file = load_env_file();
+    let cfg = EnvConfig::load();
+    cfg.log_auth_mode();
 
-    let oauth_token = env::var("ALPACA_ACCESS_TOKEN")
-        .ok()
-        .or_else(|| env_file.get("ALPACA_ACCESS_TOKEN").cloned())
-        .unwrap_or_default();
-
-    let api_key = env::var("ALPACA_API_KEY")
-        .ok()
-        .or_else(|| env_file.get("ALPACA_API_KEY").cloned())
-        .unwrap_or_default();
-
-    let api_secret = env::var("ALPACA_API_SECRET")
-        .ok()
-        .or_else(|| env_file.get("ALPACA_API_SECRET").cloned())
-        .unwrap_or_default();
-
-    let mut streamer = if !oauth_token.is_empty() {
+    let mut streamer = if let Some(oauth_token) = cfg.oauth_token {
         println!("[+] Autenticando mediante Alpaca OAuth Access Token...");
         AlpacaStreamer::with_oauth_token(oauth_token, AlpacaDataFeed::Iex, 0.01)
-    } else if !api_key.is_empty() && !api_secret.is_empty() {
+    } else if let (Some(api_key), Some(api_secret)) = (cfg.api_key, cfg.api_secret) {
         println!("[+] Autenticando mediante Alpaca API Key / Secret...");
         AlpacaStreamer::with_key_secret(api_key, api_secret, AlpacaDataFeed::Iex, 0.01)
     } else {
