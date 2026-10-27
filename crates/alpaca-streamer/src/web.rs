@@ -25,6 +25,8 @@ pub struct WebDashboardState {
     pub vpin: f64,
     pub toxic_flow: bool,
     pub lead_lag_spy_bias: f64,
+    pub broker_account: String,
+    pub buying_power: f64,
     pub current_equity: f64,
     pub sharpe_ratio: f64,
     pub win_rate: f64,
@@ -56,6 +58,8 @@ impl Default for WebDashboardState {
             vpin: 0.0,
             toxic_flow: false,
             lead_lag_spy_bias: 0.0,
+            broker_account: "Sincronizando Alpaca...".to_string(),
+            buying_power: 100_000.0,
             current_equity: 100_000.0,
             sharpe_ratio: 0.0,
             win_rate: 0.0,
@@ -191,7 +195,9 @@ fn render_dashboard_html(s: &WebDashboardState) -> String {
       <!-- Card 1: PnL y Rendimiento Financiero -->
       <div class="card">
         <div class="card-title">Auditoría Cuantitativa</div>
+        <div class="stat-row"><span class="stat-label">Cuenta Broker</span><span class="stat-val highlight">{}</span></div>
         <div class="stat-row"><span class="stat-label">Capital (Equity)</span><span class="stat-val gain">${:.2} USD</span></div>
+        <div class="stat-row"><span class="stat-label">Poder de Compra</span><span class="stat-val">${:.2} USD</span></div>
         <div class="stat-row"><span class="stat-label">Sharpe Ratio</span><span class="stat-val highlight">{:.2}</span></div>
         <div class="stat-row"><span class="stat-label">Tasa de Acierto (WinRate)</span><span class="stat-val">{:.1}%</span></div>
         <div class="stat-row"><span class="stat-label">Profit Factor</span><span class="stat-val">{:.2}</span></div>
@@ -233,7 +239,9 @@ fn render_dashboard_html(s: &WebDashboardState) -> String {
   </div>
 </body>
 </html>"#,
+        s.broker_account,
         s.current_equity,
+        s.buying_power,
         s.sharpe_ratio,
         s.win_rate * 100.0,
         s.profit_factor,

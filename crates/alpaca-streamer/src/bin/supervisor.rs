@@ -104,6 +104,49 @@ fn execute_alpaca_paper_order(
     });
 }
 
+/// Fetches the live account equity, cash, and buying power from Alpaca Paper Trading REST API.
+async fn fetch_alpaca_account(
+    client: &reqwest::Client,
+    auth: &BrokerAuth,
+) -> Option<(String, f64, f64, f64)> {
+    let mut req = client.get("https://paper-api.alpaca.markets/v2/account");
+    match auth {
+        BrokerAuth::OAuth(token) => {
+            req = req.header("Authorization", format!("Bearer {}", token));
+        }
+        BrokerAuth::KeySecret { key, secret } => {
+            req = req
+                .header("APCA-API-KEY-ID", key.as_str())
+                .header("APCA-API-SECRET-KEY", secret.as_str());
+        }
+        BrokerAuth::None => return None,
+    }
+
+    let resp = req.send().await.ok()?;
+    let val: serde_json::Value = resp.json().await.ok()?;
+    let acc_num = val
+        .get("account_number")
+        .and_then(|v| v.as_str())
+        .unwrap_or("PA3NGD2B8")
+        .to_string();
+    let equity: f64 = val
+        .get("equity")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100_000.0);
+    let cash: f64 = val
+        .get("cash")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(equity);
+    let bp: f64 = val
+        .get("buying_power")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(equity * 4.0);
+    Some((acc_num, equity, cash, bp))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("==========================================================================================");
@@ -134,6 +177,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    let broker_auth = if let Some(ref token) = cfg.oauth_token {
+        BrokerAuth::OAuth(Arc::new(token.clone()))
+    } else if let (Some(ref key), Some(ref secret)) = (&cfg.api_key, &cfg.api_secret) {
+        BrokerAuth::KeySecret {
+            key: Arc::new(key.clone()),
+            secret: Arc::new(secret.clone()),
+        }
+    } else {
+        BrokerAuth::None
+    };
+
+    let http_client = reqwest::Client::builder()
+        .pool_idle_timeout(Duration::from_secs(90))
+        .pool_max_idle_per_host(10)
+        .tcp_nodelay(true)
+        .build()?;
+
+    // Sync real account equity from Alpaca REST API
+    let (initial_account_label, initial_equity, initial_buying_power) = if !matches!(broker_auth, BrokerAuth::None) {
+        if let Some((acc, eq, _cash, bp)) = fetch_alpaca_account(&http_client, &broker_auth).await {
+            println!(
+                "[+] Sincronizacion Alpaca Exitosa: Cuenta {} (Paper) | Capital: ${:.2} USD | Poder Compra: ${:.2} USD",
+                acc, eq, bp
+            );
+            (format!("{} (Paper)", acc), eq, bp)
+        } else {
+            ("Alpaca Paper".to_string(), 100_000.0, 400_000.0)
+        }
+    } else {
+        ("Simulación Local".to_string(), 100_000.0, 100_000.0)
+    };
+
+    let live_broker_info = Arc::new(std::sync::RwLock::new((
+        initial_account_label.clone(),
+        initial_equity,
+        initial_buying_power,
+    )));
+
     let running = Arc::new(AtomicBool::new(true));
     let r_clone = running.clone();
     tokio::spawn(async move {
@@ -142,8 +223,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         r_clone.store(false, Ordering::SeqCst);
     });
 
+    // Background task to continuously re-sync real Alpaca account equity every 15s
+    if !matches!(broker_auth, BrokerAuth::None) {
+        let client_bg = http_client.clone();
+        let auth_bg = broker_auth.clone();
+        let broker_info_bg = live_broker_info.clone();
+        let running_bg = running.clone();
+        tokio::spawn(async move {
+            let mut sync_interval = tokio::time::interval(Duration::from_secs(15));
+            while running_bg.load(Ordering::Relaxed) {
+                sync_interval.tick().await;
+                if let Some((acc, eq, _cash, bp)) = fetch_alpaca_account(&client_bg, &auth_bg).await {
+                    if let Ok(mut lock) = broker_info_bg.write() {
+                        *lock = (format!("{} (Paper)", acc), eq, bp);
+                    }
+                }
+            }
+        });
+    }
+
     // Web Dashboard and Render Health-Check Server (Port 10000 / $PORT)
-    let web_state = Arc::new(std::sync::RwLock::new(alpaca_streamer::WebDashboardState::default()));
+    let web_state = Arc::new(std::sync::RwLock::new(alpaca_streamer::WebDashboardState {
+        broker_account: initial_account_label.clone(),
+        buying_power: initial_buying_power,
+        current_equity: initial_equity,
+        ..Default::default()
+    }));
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
@@ -212,7 +317,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Quantum Engine Pipeline and Simulator Generator
     let mut engine = QuantumMarketEngine::new(0.01);
     let mut simulator = MicrostructureSimulator::new(500.0, 0.01, 1337);
-    let mut auditor = PortfolioAuditor::new(100_000.0);
+    let mut auditor = PortfolioAuditor::new(initial_equity);
 
     let regimes = [
         MarketRegime::ThermalEquilibrium,
@@ -240,22 +345,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut entry_side_buy = true;
     let mut entry_leverage = 1.0;
 
-    let broker_auth = if let Some(ref token) = cfg.oauth_token {
-        BrokerAuth::OAuth(Arc::new(token.clone()))
-    } else if let (Some(ref key), Some(ref secret)) = (&cfg.api_key, &cfg.api_secret) {
-        BrokerAuth::KeySecret {
-            key: Arc::new(key.clone()),
-            secret: Arc::new(secret.clone()),
-        }
-    } else {
-        BrokerAuth::None
-    };
-
-    let http_client = reqwest::Client::builder()
-        .pool_idle_timeout(Duration::from_secs(90))
-        .pool_max_idle_per_host(10)
-        .tcp_nodelay(true)
-        .build()?;
     let mut live_positions: HashMap<String, LiveBrokerPosition> = HashMap::new();
     let mut last_broker_close_time: HashMap<String, Instant> = HashMap::new();
     let mut current_market_bias: f64 = 0.0;
@@ -540,6 +629,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             println!("└────────────────────────────────────────────────────────────────────────────────────────┘\n");
 
+            let (broker_acc_str, live_equity_val, live_bp_val) = live_broker_info
+                .read()
+                .map(|g| (g.0.clone(), g.1, g.2))
+                .unwrap_or((initial_account_label.clone(), auditor.current_equity, 100_000.0));
+
+            // Sync equity if updated from broker
+            if (auditor.current_equity - live_equity_val).abs() > 0.001 && auditor.total_trades == 0 {
+                auditor.current_equity = live_equity_val;
+            }
+
             // Update web state for live Render HTTP dashboard and health checks
             if let Ok(mut w) = web_state.write() {
                 *w = alpaca_streamer::WebDashboardState {
@@ -562,6 +661,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     vpin,
                     toxic_flow: is_toxic,
                     lead_lag_spy_bias: engine.external_index_bias,
+                    broker_account: broker_acc_str,
+                    buying_power: live_bp_val,
                     current_equity: auditor.current_equity,
                     sharpe_ratio: auditor.sharpe_ratio(252.0),
                     win_rate: auditor.win_rate(),
