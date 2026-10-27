@@ -111,18 +111,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let feed_choice = env::var("ALPACA_FEED")
         .ok()
         .or_else(|| env_file.get("ALPACA_FEED").cloned())
-        .unwrap_or_else(|| "crypto".to_string());
+        .unwrap_or_else(|| "equities".to_string());
 
-    let (feed, live_symbols, tick_size) = if feed_choice.to_lowercase() == "equities" {
-        println!("[+] Canal de Mercado: Alpaca Equities IEX (Top 10 Stocks)");
+    let (feed, live_symbols, tick_size) = if feed_choice.to_lowercase() == "crypto" {
+        println!("[+] Canal de Mercado: Alpaca Cripto (Secundario)");
+        (AlpacaDataFeed::Crypto, vec!["BTC/USD", "ETH/USD", "SOL/USD"], 0.50)
+    } else {
+        println!("[+] Canal de Mercado: Alpaca Equities Wall Street IEX (Top 10 Stocks & ETFs)");
         (
             AlpacaDataFeed::Iex,
             vec!["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "AMD", "MSFT", "AMZN", "META", "GOOGL"],
             0.01,
         )
-    } else {
-        println!("[+] Canal de Mercado: Alpaca Cripto 24/7/365 (BTC/USD, ETH/USD, SOL/USD)");
-        (AlpacaDataFeed::Crypto, vec!["BTC/USD", "ETH/USD", "SOL/USD"], 0.50)
     };
 
     let streamer_auth = if !oauth_token.is_empty() {
@@ -217,14 +217,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let token_arc = Arc::new(oauth_token.clone());
     let mut live_positions: HashMap<String, LiveBrokerPosition> = HashMap::new();
     let mut last_broker_close_time: HashMap<String, Instant> = HashMap::new();
+    let mut current_market_bias: f64 = 0.0;
 
     let mut last_report_time = Instant::now();
     let mut last_report_ticks: u64 = 0;
     let mut interval = tokio::time::interval(Duration::from_millis(1));
 
     println!("[+] Supervisor iniciado. Monitorizando telemetria, memoria y tiempos de calculo...");
-    println!("[+] Estrategia de Ejecucion: MODO ALTA PRECISION (Multi-Engine Aislado - Max Win Rate)");
-    println!("[+] Parametros: TP=+0.22% (decay +0.12%), SL=-0.20% (cavit -0.12%), Cooldown=45s, Size=$20 USD");
+    println!("[+] Especializacion de Mercado: WALL STREET EQUITIES IEX (SPY, QQQ, NVDA, AAPL, TSLA...)");
+    println!("[+] Lead-Lag Cuantico: SPY/QQQ Macro Index Bias -> Arbitraje Estadistico en Acciones");
+    println!("[+] Parametros: TP=+0.18% (decay +0.08%), SL=-0.12% (cavit -0.06%), Cooldown=45s, Size=$25 USD");
     println!("------------------------------------------------------------------------------------------\n");
 
     while running.load(Ordering::Relaxed) {
@@ -234,8 +236,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 " \x1b[1;32m[ALPACA LIVE]\x1b[0m {:<7} | Mid: ${:<9.2} | Micro: ${:<9.2} | S: {:.3} | Coher: {:.3} | Fase: {:?}",
                 sym, mid, micro, entropy, coherence, phase
             );
-            if sym == "SPY" || sym == "BTC/USD" {
-                let bias = ((micro - mid) / (mid * 0.0001)).clamp(-1.0, 1.0);
+            if sym == "SPY" || sym == "QQQ" {
+                let bias = ((micro - mid) / (mid * 0.00005)).clamp(-1.0, 1.0);
+                current_market_bias = bias;
                 engine.set_external_index_bias(bias);
             }
 
@@ -249,8 +252,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let return_frac = price_diff / pos.entry_price.max(1.0);
 
-                // 1. Take-Profit (+0.22% target or +0.12% with momentum exhaustion)
-                if return_frac >= 0.0022 || (return_frac >= 0.0012 && coherence < 0.20) {
+                // 1. Take-Profit (+0.18% target or +0.08% with momentum exhaustion)
+                if return_frac >= 0.0018 || (return_frac >= 0.0008 && coherence < 0.20) {
                     let exit_side = if pos.side_buy { "sell" } else { "buy" };
                     execute_alpaca_paper_order(token_arc.clone(), sym.clone(), exit_side, pos.notional);
                     let profit_usd = return_frac * pos.notional;
@@ -260,8 +263,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                     live_positions.remove(&sym);
                     last_broker_close_time.insert(sym.clone(), Instant::now());
-                // 2. Stop-Loss (-0.20% max adverse risk or -0.12% with adverse liquidity cavitation)
-                } else if return_frac <= -0.0020 || (phase == MarketQuantumPhase::LiquidityCavitation && return_frac <= -0.0012) {
+                // 2. Stop-Loss (-0.12% max adverse risk or -0.06% with adverse liquidity cavitation)
+                } else if return_frac <= -0.0012 || (phase == MarketQuantumPhase::LiquidityCavitation && return_frac <= -0.0006) {
                     let exit_side = if pos.side_buy { "sell" } else { "buy" };
                     execute_alpaca_paper_order(token_arc.clone(), sym.clone(), exit_side, pos.notional);
                     let loss_usd = (-return_frac) * pos.notional;
@@ -288,23 +291,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if can_enter && (trigger_breakout || trigger_cavitation) && micro != mid {
                     let side_buy = micro > mid;
                     let order_side = if side_buy { "buy" } else { "sell" };
-                    let notional = 20.0; // High-precision $20.00 USD notional
-                    execute_alpaca_paper_order(token_arc.clone(), sym.clone(), order_side, notional);
-                    let trigger_reason = if trigger_breakout { "BREAKOUT" } else { "CAVITACION" };
-                    println!(
-                        " \x1b[1;36m[ALPACA ALTA-PRECISION: ENTRADA {} ({})]\x1b[0m {} a ${:.2} | Micro: ${:.2} | Coher: {:.3} | S: {:.3}",
-                        order_side.to_uppercase(), trigger_reason, sym, mid, micro, coherence, entropy
-                    );
-                    live_positions.insert(
-                        sym.clone(),
-                        LiveBrokerPosition {
-                            symbol: sym.clone(),
-                            side_buy,
-                            entry_price: mid,
-                            notional,
-                            entry_time: Instant::now(),
-                        },
-                    );
+
+                    // Lead-Lag Index alignment check for individual equities
+                    let is_aligned_with_macro = if side_buy {
+                        current_market_bias >= -0.20
+                    } else {
+                        current_market_bias <= 0.20
+                    };
+
+                    if is_aligned_with_macro {
+                        let notional = 25.0; // High-precision $25.00 USD notional in equities
+                        execute_alpaca_paper_order(token_arc.clone(), sym.clone(), order_side, notional);
+                        let trigger_reason = if trigger_breakout { "BREAKOUT" } else { "CAVITACION" };
+                        println!(
+                            " \x1b[1;36m[ALPACA EQUITIES: ENTRADA {} ({})]\x1b[0m {} a ${:.2} | Micro: ${:.2} | Bias SPY: {:.2} | Coher: {:.3} | S: {:.3}",
+                            order_side.to_uppercase(), trigger_reason, sym, mid, micro, current_market_bias, coherence, entropy
+                        );
+                        live_positions.insert(
+                            sym.clone(),
+                            LiveBrokerPosition {
+                                symbol: sym.clone(),
+                                side_buy,
+                                entry_price: mid,
+                                notional,
+                                entry_time: Instant::now(),
+                            },
+                        );
+                    }
                 }
             }
         }
