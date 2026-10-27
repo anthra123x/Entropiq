@@ -1,6 +1,6 @@
 # Rust build artifacts
 /target
-Cargo.lock
+
 
 # Environment variables & secrets (NEVER commit API keys)
 .env

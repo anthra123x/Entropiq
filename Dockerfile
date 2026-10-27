@@ -1,13 +1,13 @@
-# Stage 1: Build release binary
-FROM rust:1.80-slim as builder
+# Stage 1: Build release binary with latest Rust compiler
+FROM rust:latest as builder
 
 WORKDIR /usr/src/entropiq
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates pkg-config && rm -rf /var/lib/apt/lists/*
 
-# Copy workspace sources
-COPY Cargo.toml ./
+# Copy workspace sources and deterministic lockfile
+COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
 # Compile supervisor binary in release mode
