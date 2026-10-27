@@ -114,9 +114,9 @@ impl AlpacaStreamer {
                         },
                         AlpacaAuth::OAuthToken(token) => AuthMessage {
                             action: "auth",
-                            key: None,
-                            secret: None,
-                            token: Some(token.as_str()),
+                            key: Some("oauth"),
+                            secret: Some(token.as_str()),
+                            token: None,
                         },
                     };
                     if let Ok(auth_json) = serde_json::to_string(&auth_msg) {
