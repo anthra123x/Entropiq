@@ -1,6 +1,10 @@
 use alpaca_streamer::{AlpacaAuth, AlpacaDataFeed, AlpacaStreamer, EnvConfig};
+use market_microstructure::Side;
 use market_simulator::{MarketRegime, MicrostructureSimulator};
-use quantum_engine::{MarketQuantumPhase, PortfolioAuditor, QuantumMarketEngine};
+use quantum_engine::{
+    MarketQuantumPhase, OrderIntent, PortfolioAuditor, QuantumAnalyticsSnapshot, QuantumMarketEngine,
+    SmartOrderRouter,
+};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -307,8 +311,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("[+] Afinidad CPU HFT: Hilo principal (Motor Cuántico) fijado a Core 0");
     }
 
-    // DEF-03 fix: 4096-element channel + dropped tick counter
-    let (live_tx, mut live_rx) = mpsc::channel::<(String, f64, f64, f64, f64, MarketQuantumPhase)>(4096);
+    // DEF-03 fix: 4096-element channel sending full QuantumAnalyticsSnapshot
+    let (live_tx, mut live_rx) = mpsc::channel::<(String, QuantumAnalyticsSnapshot)>(4096);
     let alpaca_connected = Arc::new(AtomicBool::new(false));
     let alpaca_ticks_count = Arc::new(AtomicU64::new(0));
     let alpaca_ticks_dropped = Arc::new(AtomicU64::new(0));
@@ -338,14 +342,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .stream_with_symbol(syms, |sym, snap| {
                     ticks_flag.fetch_add(1, Ordering::Relaxed);
                     // DEF-03 fix: count silently dropped ticks on channel saturation
-                    if live_tx.try_send((
-                        sym.to_string(),
-                        snap.mid_price,
-                        snap.micro_price,
-                        snap.normalized_entropy,
-                        snap.quantum_coherence,
-                        snap.active_phase,
-                    )).is_err() {
+                    if live_tx.try_send((sym.to_string(), *snap)).is_err() {
                         dropped_flag.fetch_add(1, Ordering::Relaxed);
                     }
                 })
@@ -358,8 +355,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // 2. Quantum Engine Pipeline and Simulator Generator
-    let mut engine = QuantumMarketEngine::new(0.01);
+    // 2. Quantum Engine Telemetry, Smart Order Router, and Auditor
+    let mut offline_engine = QuantumMarketEngine::new(0.01);
     let mut simulator = MicrostructureSimulator::new(500.0, 0.01, 1337);
     let mut auditor = PortfolioAuditor::new(initial_equity);
 
@@ -370,7 +367,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         MarketRegime::LiquidityCavitation,
     ];
     let mut regime_idx = 0;
-    let mut last_snapshot = None;
+    let mut last_real_snapshot: Option<QuantumAnalyticsSnapshot> = None;
+    let mut real_snapshots: HashMap<String, QuantumAnalyticsSnapshot> = HashMap::new();
 
     let mut total_processed_ticks: u64 = 0;
     let mut total_latency_ns: u64 = 0;
@@ -378,21 +376,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut max_latency_ns: u64 = 0;
 
     // DEF-05 fix: Running P-square approximate quantile estimation (no sort needed).
-    // We track three markers for p50 and p99 using a simplified EMA-based approach.
-    let mut p50_ema: f64 = 2_000.0; // initial guess 2µs
-    let mut p99_ema: f64 = 8_000.0; // initial guess 8µs
+    let mut p50_ema: f64 = 2_000.0;
+    let mut p99_ema: f64 = 8_000.0;
     const EMA_ALPHA_P50: f64 = 0.001;
     const EMA_ALPHA_P99: f64 = 0.0005;
 
-    let mut in_position = false;
-    let mut entry_price = 0.0;
-    let mut entry_side_buy = true;
-    let mut entry_leverage = 1.0;
-
     let mut live_positions: HashMap<String, LiveBrokerPosition> = HashMap::new();
     let mut last_broker_close_time: HashMap<String, Instant> = HashMap::new();
+    let mut signal_confirmations: HashMap<String, (Side, u32, Instant)> = HashMap::new();
     let mut current_market_bias: f64 = 0.0;
-    let mut symbol_coherence_ema: HashMap<String, f64> = HashMap::new();
 
     let start_time = Instant::now();
     let mut last_report_time = Instant::now();
@@ -402,38 +394,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[+] Supervisor iniciado. Monitorizando telemetria, memoria y tiempos de calculo...");
     println!("[+] Especializacion de Mercado: WALL STREET EQUITIES IEX (SPY, QQQ, NVDA, AAPL, TSLA...)");
     println!("[+] Lead-Lag Cuantico: SPY/QQQ Macro Index Bias -> Arbitraje Estadistico en Acciones");
-    println!("[+] Parametros: TP=+0.18% (decay +0.08%), SL=-0.12% (cavit -0.06%), Cooldown=45s, Size=Kelly-Dinamico (2% equity cap, VPIN guard)");
+    println!("[+] Arquitectura Pura: Motor Cuantico alimentado 100% con datos reales (sin envenenamiento sintetico)");
+    println!("[+] Seguridad: SmartOrderRouter (SOR) activo con Escudo VPIN (<0.55) y Ventana de Confirmacion");
     println!("------------------------------------------------------------------------------------------\n");
 
+    let is_live_mode = alpaca_connected.load(Ordering::Relaxed) || live_symbols.len() > 0;
+
     while running.load(Ordering::Relaxed) {
-        // Step A: Check for any real Alpaca tick arriving from WebSocket
-        while let Ok((sym, mid, micro, entropy, coherence, phase)) = live_rx.try_recv() {
-            println!(
-                " \x1b[1;32m[ALPACA LIVE]\x1b[0m {:<7} | Mid: ${:<9.2} | Micro: ${:<9.2} | S: {:.3} | Coher: {:.3} | Fase: {:?}",
-                sym, mid, micro, entropy, coherence, phase
-            );
+        // Step A: Process real market ticks from Alpaca WebSocket
+        while let Ok((sym, snap)) = live_rx.try_recv() {
+            let t_tick_start = Instant::now();
+            total_processed_ticks += 1;
+            last_real_snapshot = Some(snap);
+            real_snapshots.insert(sym.clone(), snap);
+
             if sym == "SPY" || sym == "QQQ" {
-                let bias = ((micro - mid) / (mid * 0.00005)).clamp(-1.0, 1.0);
-                current_market_bias = bias;
-                engine.set_external_index_bias(bias);
+                current_market_bias = ((snap.micro_price - snap.mid_price) / (snap.mid_price * 0.00005)).clamp(-1.0, 1.0);
             }
 
-            // Real-time stateful live trading execution on Alpaca Broker (paper account)
-            // DEF-10 fix: borrow position without clone
+            println!(
+                " \x1b[1;32m[ALPACA LIVE]\x1b[0m {:<7} | Mid: ${:<9.2} | Micro: ${:<9.2} | S: {:.3} | Coher: {:.3} | VPIN: {:.3} | Mach: {:.2} | Fase: {:?}",
+                sym, snap.mid_price, snap.micro_price, snap.normalized_entropy, snap.quantum_coherence, snap.vpin, snap.fluid_metrics.mach_number, snap.active_phase
+            );
+
+            // A1. Position Monitoring for sym: Check Take-Profit, Stop-Loss, and Emergency Exit
             let pos_opt_data = live_positions.get(&sym).map(|pos| {
                 (pos.side_buy, pos.entry_price, pos.qty, pos.notional)
             });
+
             if let Some((pos_side_buy, pos_entry_price, pos_qty, pos_notional)) = pos_opt_data {
-                // Monitor active open position for Take-Profit or Stop-Loss
+                let spread_est = (snap.mid_price * 0.0002).max(0.01);
+                let best_bid = snap.mid_price - spread_est * 0.5;
+                let best_ask = snap.mid_price + spread_est * 0.5;
+                let sor_intent = SmartOrderRouter::route_intent(&snap, best_bid, best_ask, 1.0);
+
                 let price_diff = if pos_side_buy {
-                    mid - pos_entry_price
+                    snap.mid_price - pos_entry_price
                 } else {
-                    pos_entry_price - mid
+                    pos_entry_price - snap.mid_price
                 };
                 let return_frac = price_diff / pos_entry_price.max(1.0);
 
-                // 1. Take-Profit (+0.18% target or +0.08% with momentum exhaustion)
-                if return_frac >= 0.0018 || (return_frac >= 0.0008 && coherence < 0.20) {
+                // Emergency Exit: SmartOrderRouter triggers EmergencyCancelAll on Cavitation shock (Mach >= 1.0) or Toxic flow (VPIN > 0.55)
+                if let OrderIntent::EmergencyCancelAll { reason } = sor_intent {
+                    let exit_side = if pos_side_buy { "sell" } else { "buy" };
+                    if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None)).await {
+                        let pnl_usd = return_frac * pos_notional;
+                        auditor.record_trade(pnl_usd, return_frac);
+                        println!(
+                            " \x1b[1;31m[ALPACA EMERGENCY EXIT ({})]\x1b[0m Posicion cerrada en {}: {:.2}% | PnL: ${:.3} USD",
+                            reason, sym, return_frac * 100.0, pnl_usd
+                        );
+                        live_positions.remove(&sym);
+                        last_broker_close_time.insert(sym.clone(), Instant::now());
+                    }
+                // 1. Take-Profit (+0.18% target gain, or +0.08% if coherence decays below 0.20)
+                } else if return_frac >= 0.0018 || (return_frac >= 0.0008 && snap.quantum_coherence < 0.20) {
                     let exit_side = if pos_side_buy { "sell" } else { "buy" };
                     if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None)).await {
                         let profit_usd = return_frac * pos_notional;
@@ -445,8 +461,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         live_positions.remove(&sym);
                         last_broker_close_time.insert(sym.clone(), Instant::now());
                     }
-                // 2. Stop-Loss (-0.12% max adverse risk or -0.06% with adverse liquidity cavitation)
-                } else if return_frac <= -0.0012 || (phase == MarketQuantumPhase::LiquidityCavitation && return_frac <= -0.0006) {
+                // 2. Stop-Loss (-0.12% hard risk cutoff)
+                } else if return_frac <= -0.0012 {
                     let exit_side = if pos_side_buy { "sell" } else { "buy" };
                     if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None)).await {
                         let loss_usd = return_frac * pos_notional;
@@ -459,162 +475,117 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         last_broker_close_time.insert(sym.clone(), Instant::now());
                     }
                 }
-            } else {
-                // No open position in this asset -> evaluate High-Precision quantum entry criteria
+            } else if sym != "SPY" && sym != "QQQ" {
+                // A2. No open position -> Evaluate Entry Criteria via SmartOrderRouter
                 let is_market_open = market_open_flag.load(Ordering::Relaxed);
                 let can_enter = is_market_open && last_broker_close_time
                     .get(&sym)
                     .map(|t| t.elapsed() >= Duration::from_secs(45))
                     .unwrap_or(true);
 
-                let is_skewed = (micro - mid).abs() > (mid * 0.00008);
-                // DEF-04 fix: Dynamic regime-adaptive quantum order filter.
-                // Requires structural coherence exceeding symbol EMA baseline AND bounded entropy.
-                let coh_baseline = symbol_coherence_ema.entry(sym.clone()).or_insert(coherence);
-                *coh_baseline = 0.95 * (*coh_baseline) + 0.05 * coherence;
-                let has_quantum_order = coherence >= 0.28 && entropy <= 0.80 && coherence >= (*coh_baseline * 0.90);
+                if can_enter {
+                    let spread_est = (snap.mid_price * 0.0002).max(0.01);
+                    let best_bid = snap.mid_price - spread_est * 0.5;
+                    let best_ask = snap.mid_price + spread_est * 0.5;
+                    let kelly_f = auditor.kelly_leverage(snap.quantum_coherence).clamp(0.2, 3.0);
+                    let sor_intent = SmartOrderRouter::route_intent(&snap, best_bid, best_ask, kelly_f);
 
-                // VPIN toxic-flow gate: block entry when adverse selection is elevated
-                let vpin_val = web_state.read().map(|g| g.vpin).unwrap_or(0.0);
-                let is_vpin_safe = vpin_val < 0.55;
+                    match sor_intent {
+                        OrderIntent::AggressiveTaker { side, size_ratio, urgency: _ } => {
+                            // Bug #4 Fix: Confirmation window (Anti-whipsaw filter). Require 2 consecutive signals or strong coherence.
+                            let conf_entry = signal_confirmations.entry(sym.clone()).or_insert((side, 0, Instant::now()));
+                            if conf_entry.0 == side && conf_entry.2.elapsed() < Duration::from_secs(5) {
+                                conf_entry.1 += 1;
+                                conf_entry.2 = Instant::now();
+                            } else {
+                                *conf_entry = (side, 1, Instant::now());
+                            }
 
-                let trigger_breakout = phase == MarketQuantumPhase::SuperconductingBreakout && coherence >= 0.35 && entropy <= 0.88;
-                let trigger_cavitation = phase == MarketQuantumPhase::LiquidityCavitation && is_skewed && has_quantum_order;
+                            let is_confirmed = conf_entry.1 >= 2 || (snap.phase_confidence >= 0.88 && snap.quantum_coherence >= 0.38);
 
-                if can_enter && is_vpin_safe && (trigger_breakout || trigger_cavitation) && micro != mid {
-                    let side_buy = micro > mid;
-                    let order_side = if side_buy { "buy" } else { "sell" };
+                            let is_macro_aligned = if side == Side::Buy {
+                                current_market_bias >= -0.20
+                            } else {
+                                current_market_bias <= 0.20
+                            };
 
-                    // Lead-Lag Index alignment check for individual equities
-                    let is_aligned_with_macro = if side_buy {
-                        current_market_bias >= -0.20
-                    } else {
-                        current_market_bias <= 0.20
-                    };
+                            if is_confirmed && is_macro_aligned {
+                                signal_confirmations.remove(&sym);
+                                let side_buy = side == Side::Buy;
+                                let order_side_str = if side_buy { "buy" } else { "sell" };
 
-                    if is_aligned_with_macro {
-                        // Dynamic Kelly-scaled notional: base $20 * kelly_fraction, capped at 2% of live equity
-                        let live_eq = auditor.current_equity.max(1000.0);
-                        let kelly_f = auditor.kelly_leverage(coherence).clamp(0.2, 3.0);
-                        let max_notional = live_eq * 0.02; // 2% equity cap per trade
-                        let notional = (20.0 * kelly_f).min(max_notional).max(10.0);
-                        let notional = (notional * 100.0).round() / 100.0; // round to cents
-                        let qty = ((notional / mid) * 100.0).round() / 100.0;
-                        let qty = qty.max(0.01);
-                        if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, order_side, (None, Some(notional))).await {
-                            let trigger_reason = if trigger_breakout { "BREAKOUT" } else { "CAVITACION" };
-                            println!(
-                                " \x1b[1;36m[ALPACA EQUITIES: ENTRADA {} ({})]\x1b[0m {} a ${:.2} (qty: {:.2}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
-                                order_side.to_uppercase(), trigger_reason, sym, mid, qty, notional, kelly_f, vpin_val, coherence, entropy
-                            );
-                            live_positions.insert(
-                                sym.clone(),
-                                LiveBrokerPosition {
-                                    symbol: sym.clone(),
-                                    side_buy,
-                                    entry_price: mid,
-                                    qty,
-                                    notional,
-                                    entry_time: Instant::now(),
-                                },
-                            );
+                                let live_eq = auditor.current_equity.max(1000.0);
+                                let max_notional = live_eq * 0.02; // 2% equity cap
+                                let notional = (20.0 * kelly_f * size_ratio).min(max_notional).max(10.0);
+                                let notional = (notional * 100.0).round() / 100.0;
+                                let qty = ((notional / snap.mid_price) * 100.0).round() / 100.0;
+                                let qty = qty.max(0.01);
+
+                                if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, order_side_str, (None, Some(notional))).await {
+                                    println!(
+                                        " \x1b[1;36m[ALPACA EQUITIES: ENTRADA {} (SOR: {:?})]\x1b[0m {} a ${:.2} (qty: {:.2}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
+                                        order_side_str.to_uppercase(), snap.active_phase, sym, snap.mid_price, qty, notional, kelly_f, snap.vpin, snap.quantum_coherence, snap.normalized_entropy
+                                    );
+                                    live_positions.insert(
+                                        sym.clone(),
+                                        LiveBrokerPosition {
+                                            symbol: sym.clone(),
+                                            side_buy,
+                                            entry_price: snap.mid_price,
+                                            qty,
+                                            notional,
+                                            entry_time: Instant::now(),
+                                        },
+                                    );
+                                }
+                            }
                         }
+                        OrderIntent::EmergencyCancelAll { reason } => {
+                            signal_confirmations.remove(&sym);
+                            if snap.vpin > 0.55 {
+                                println!(
+                                    " \x1b[1;33m[SOR ESCUDO]\x1b[0m Entrada prevenida en {}: {} (VPIN: {:.3})",
+                                    sym, reason, snap.vpin
+                                );
+                            }
+                        }
+                        _ => {}
                     }
-                } else if can_enter && !is_vpin_safe && (trigger_breakout || trigger_cavitation) {
-                    println!(
-                        " \x1b[1;33m[VPIN BLOCK]\x1b[0m Entrada bloqueada en {} — Flujo toxico detectado (VPIN: {:.3} >= 0.55)",
-                        sym, vpin_val
-                    );
                 }
             }
+
+            let elapsed_ns = t_tick_start.elapsed().as_nanos() as u64;
+            total_latency_ns += elapsed_ns;
+            if elapsed_ns < min_latency_ns { min_latency_ns = elapsed_ns; }
+            if elapsed_ns > max_latency_ns { max_latency_ns = elapsed_ns; }
+            let elapsed_f = elapsed_ns as f64;
+            if elapsed_f <= p50_ema { p50_ema -= EMA_ALPHA_P50 * p50_ema * 0.5; } else { p50_ema += EMA_ALPHA_P50 * p50_ema; }
+            if elapsed_f <= p99_ema { p99_ema -= EMA_ALPHA_P99 * p99_ema * 0.01; } else { p99_ema += EMA_ALPHA_P99 * p99_ema; }
         }
 
-        // Step B: Generate realistic tick stream to exercise quantum engine under load
-        // Generates batches of 50 ticks every millisecond -> ~50,000 ticks/sec throughput
-        let current_regime = regimes[regime_idx % regimes.len()];
-        if total_processed_ticks % 10_000 == 0 && total_processed_ticks > 0 {
-            regime_idx += 1;
-        }
+        // Step B: Offline benchmark simulator ONLY when running without real data stream
+        // When Alpaca is connected, the quantum engine is 100% fed by real market data, completely isolated from synthetic ticks.
+        if !is_live_mode {
+            let current_regime = regimes[regime_idx % regimes.len()];
+            if total_processed_ticks % 10_000 == 0 && total_processed_ticks > 0 {
+                regime_idx += 1;
+            }
 
-        // Cross-asset lead-lag coupling: QuantumBreakout induces macro index drift
-        if current_regime == MarketRegime::QuantumBreakout {
-            engine.set_external_index_bias(0.60);
-        } else {
-            engine.set_external_index_bias(0.0);
-        }
-
-        for _ in 0..50 {
             let (quote, trade_opt) = simulator.next_tick(current_regime);
-
             let t_start = Instant::now();
-            let snap_opt = engine.on_quote(quote);
+            let snap_opt = offline_engine.on_quote(quote);
             if let Some(trade) = trade_opt {
-                engine.on_trade(trade);
+                offline_engine.on_trade(trade);
             }
             let elapsed_ns = t_start.elapsed().as_nanos() as u64;
 
             total_processed_ticks += 1;
             total_latency_ns += elapsed_ns;
-            if elapsed_ns < min_latency_ns {
-                min_latency_ns = elapsed_ns;
-            }
-            if elapsed_ns > max_latency_ns {
-                max_latency_ns = elapsed_ns;
-            }
+            if elapsed_ns < min_latency_ns { min_latency_ns = elapsed_ns; }
+            if elapsed_ns > max_latency_ns { max_latency_ns = elapsed_ns; }
 
-            // DEF-05 fix: Update EMA-based approx percentiles (O(1), no Vec alloc, no sort)
-            let elapsed_f = elapsed_ns as f64;
-            if elapsed_f <= p50_ema {
-                p50_ema -= EMA_ALPHA_P50 * p50_ema * 0.5;
-            } else {
-                p50_ema += EMA_ALPHA_P50 * p50_ema;
-            }
-            if elapsed_f <= p99_ema {
-                p99_ema -= EMA_ALPHA_P99 * p99_ema * 0.01;
-            } else {
-                p99_ema += EMA_ALPHA_P99 * p99_ema;
-            }
-
-            // Dynamic execution with Maker/Taker spread capture, Kelly leverage, and Decoherence stop
-            // Dynamic execution: Only record synthetic trades into auditor if Alpaca is NOT active (pure local simulation mode)
-            let is_alpaca_live = alpaca_connected.load(Ordering::Relaxed);
-            if !is_alpaca_live {
-                if let Some(snap) = snap_opt {
-                    if !in_position {
-                        if snap.active_phase == MarketQuantumPhase::SuperconductingBreakout && snap.quantum_coherence >= 0.70 && snap.phase_confidence > 0.78 {
-                            in_position = true;
-                            entry_price = snap.mid_price;
-                            entry_side_buy = snap.tunneling_prob_ask > snap.tunneling_prob_bid;
-                            entry_leverage = auditor.kelly_leverage(snap.quantum_coherence);
-                        }
-                    } else {
-                        let price_diff = if entry_side_buy {
-                            snap.mid_price - entry_price
-                        } else {
-                            entry_price - snap.mid_price
-                        };
-                        let return_frac = price_diff / entry_price.max(1.0);
-
-                        // Maker spread capture bonus (+0.8 bps on orderly passive fill)
-                        let maker_bonus = if snap.tunneling_prob_ask.max(snap.tunneling_prob_bid) <= 0.88 { 0.00008 } else { 0.0 };
-
-                        // 1. Take-Profit on momentum exhaustion or target gain (+0.35%)
-                        if return_frac >= 0.0035 || (return_frac >= 0.0018 && snap.active_phase != MarketQuantumPhase::SuperconductingBreakout) {
-                            let net_return = (return_frac + maker_bonus) * entry_leverage;
-                            let pnl = price_diff * 100.0 * entry_leverage + (maker_bonus * entry_price * 100.0);
-                            auditor.record_trade(pnl, net_return);
-                            in_position = false;
-                        // 2. Stop-Loss on Cavitation Risk or adverse move (-0.15%)
-                        } else if (snap.active_phase == MarketQuantumPhase::LiquidityCavitation && return_frac < -0.0005) || return_frac <= -0.0015 {
-                            let pnl = price_diff * 100.0 * entry_leverage;
-                            auditor.record_trade(pnl, return_frac * entry_leverage);
-                            in_position = false;
-                        }
-                    }
-                }
-            }
             if let Some(snap) = snap_opt {
-                last_snapshot = Some(snap);
+                last_real_snapshot = Some(snap);
             }
         }
 
@@ -630,8 +601,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 0.0
             };
 
-            // Calculate p50 and p99 from sliding sample
-            // DEF-05 fix: EMA-tracked percentiles, no sort, no Vec clear
             let p50 = p50_ema as u64;
             let p99 = p99_ema as u64;
 
@@ -640,7 +609,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let alpaca_total = alpaca_ticks_count.load(Ordering::Relaxed);
             let alpaca_dropped = alpaca_ticks_dropped.load(Ordering::Relaxed);
 
-            let (entropy, coherence, mach, phase, conf, vpin, is_toxic) = if let Some(s) = last_snapshot {
+            let (entropy, coherence, mach, phase, conf, vpin, is_toxic) = if let Some(s) = last_real_snapshot {
                 (s.normalized_entropy, s.quantum_coherence, s.fluid_metrics.mach_number, s.active_phase, s.phase_confidence, s.vpin, s.is_toxic_flow)
             } else {
                 (1.0, 0.0, 0.0, MarketQuantumPhase::ThermalNoise, 0.5, 0.0, false)
@@ -669,8 +638,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!(
                 "│ Flujo Toxico:    VPIN: {:>5.3}       | Escudo Toxico: {:<12} | Lead-Lag SPY: {:>6.2}  │",
                 vpin,
-                if is_toxic { "\x1b[1;31mBLOQUEO\x1b[0m" } else { "\x1b[1;32mPERMISIVO\x1b[0m" },
-                engine.external_index_bias
+                if is_toxic || vpin > 0.55 { "\x1b[1;31mBLOQUEO\x1b[0m" } else { "\x1b[1;32mPERMISIVO\x1b[0m" },
+                current_market_bias
             );
             println!(
                 "│ Fase de Mercado: \x1b[1;33m{:<24?}\x1b[0m (Confianza: {:>5.1}%)                     │",
@@ -721,8 +690,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     market_phase: format!("{:?}", phase),
                     phase_confidence: conf,
                     vpin,
-                    toxic_flow: is_toxic,
-                    lead_lag_spy_bias: engine.external_index_bias,
+                    toxic_flow: is_toxic || vpin > 0.55,
+                    lead_lag_spy_bias: current_market_bias,
                     market_open: market_open_flag.load(Ordering::Relaxed),
                     broker_account: broker_acc_str,
                     buying_power: live_bp_val,
