@@ -1,18 +1,35 @@
-# Build stage: compile static release binary
+# Stage 1: Build release binary
 FROM rust:1.80-slim as builder
 
-WORKDIR /app
-COPY . .
+WORKDIR /usr/src/entropiq
 
-RUN cargo build --release --bin supervisor -p alpaca-streamer
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates pkg-config && rm -rf /var/lib/apt/lists/*
 
-# Runtime stage: ultra-lightweight distroless/debian
+# Copy workspace sources
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+# Compile supervisor binary in release mode
+RUN cargo build --release --bin supervisor
+
+# Stage 2: Ultra-light runtime container (< 30 MB)
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# Install root TLS certificates for WebSocket and HTTPS
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/target/release/supervisor /app/entropiq-supervisor
 
-ENV RUST_LOG=info
-CMD ["/app/entropiq-supervisor"]
+# Copy binary from builder
+COPY --from=builder /usr/src/entropiq/target/release/supervisor /app/supervisor
+
+# Expose Render HTTP port
+ENV PORT=10000
+EXPOSE 10000
+
+# Native health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:${PORT}/health || exit 1
+
+CMD ["/app/supervisor"]

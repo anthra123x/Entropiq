@@ -190,8 +190,29 @@ cargo run --release --bin supervisor -p alpaca-streamer
 
 ---
 
+## Cloud Deployment (Render & Docker)
+
+Entropiq includes native containerization and a zero-dependency HTTP server (`web.rs`) designed for continuous 24/7 cloud deployment on **Render**:
+
+1. **Deploy on Render:**
+   - Create a **New Web Service** connected to your GitHub repository (`anthra123x/Entropiq`).
+   - Select **Docker** runtime (uses the optimized multi-stage `Dockerfile`).
+   - Configure Environment Variables in Render:
+     - `ALPACA_ACCESS_TOKEN` or `ALPACA_API_KEY` / `ALPACA_API_SECRET`
+     - `ALPACA_FEED=equities`
+     - `PORT=10000`
+2. **24/7 Keep-Alive (Free Tier):**
+   - Render free tier instances spin down after 15 minutes of inactivity.
+   - Set up a free monitor (e.g., [UptimeRobot](https://uptimerobot.com) or [cron-job.org](https://cron-job.org)) to ping `https://your-app.onrender.com/health` every 10 minutes.
+   - This keeps the instance running continuously throughout market hours with zero cost.
+3. **Mobile Terminal Dashboard:**
+   - Access `https://your-app.onrender.com/` directly on any mobile or desktop browser to inspect real-time PnL, quantum coherence, entropy, and live risk metrics.
+
+---
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 Copyright (c) 2026 anthra123x.
+

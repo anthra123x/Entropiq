@@ -142,6 +142,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         r_clone.store(false, Ordering::SeqCst);
     });
 
+    // Web Dashboard and Render Health-Check Server (Port 10000 / $PORT)
+    let web_state = Arc::new(std::sync::RwLock::new(alpaca_streamer::WebDashboardState::default()));
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(10000);
+    let web_state_server = web_state.clone();
+    tokio::spawn(async move {
+        alpaca_streamer::start_web_server(web_state_server, port).await;
+    });
+
     // CPU Pinning HFT: Pin main calculation pipeline to Core 0
     if alpaca_streamer::pin_current_thread_to_core(0) {
         println!("[+] Afinidad CPU HFT: Hilo principal (Motor Cuántico) fijado a Core 0");
@@ -250,6 +261,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut current_market_bias: f64 = 0.0;
     let mut symbol_coherence_ema: HashMap<String, f64> = HashMap::new();
 
+    let start_time = Instant::now();
     let mut last_report_time = Instant::now();
     let mut last_report_ticks: u64 = 0;
     let mut interval = tokio::time::interval(Duration::from_millis(1));
@@ -527,6 +539,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 auditor.total_trades
             );
             println!("└────────────────────────────────────────────────────────────────────────────────────────┘\n");
+
+            // Update web state for live Render HTTP dashboard and health checks
+            if let Ok(mut w) = web_state.write() {
+                *w = alpaca_streamer::WebDashboardState {
+                    uptime_secs: start_time.elapsed().as_secs(),
+                    websocket_connected: is_alpaca_up,
+                    alpaca_ticks_received: alpaca_total,
+                    alpaca_ticks_dropped: alpaca_dropped,
+                    total_processed_ticks,
+                    throughput_ticks_per_sec: throughput,
+                    rss_mb,
+                    avg_latency_ns: avg_latency,
+                    min_latency_ns,
+                    p50_latency_ns: p50,
+                    p99_latency_ns: p99,
+                    entropy,
+                    coherence,
+                    mach_number: mach,
+                    market_phase: format!("{:?}", phase),
+                    phase_confidence: conf,
+                    vpin,
+                    toxic_flow: is_toxic,
+                    lead_lag_spy_bias: engine.external_index_bias,
+                    current_equity: auditor.current_equity,
+                    sharpe_ratio: auditor.sharpe_ratio(252.0),
+                    win_rate: auditor.win_rate(),
+                    kelly_leverage: auditor.kelly_leverage(coherence),
+                    profit_factor: auditor.profit_factor(),
+                    max_drawdown: auditor.max_drawdown,
+                    total_trades: auditor.total_trades,
+                };
+            }
 
             last_report_time = now;
             last_report_ticks = total_processed_ticks;

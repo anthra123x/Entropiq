@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: entropiq-supervisor
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: ALPACA_FEED
+        value: equities
+      # Configure ALPACA_ACCESS_TOKEN or ALPACA_API_KEY / ALPACA_API_SECRET in Render Dashboard Environment Secrets

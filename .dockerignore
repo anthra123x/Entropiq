@@ -1,0 +1,9 @@
+target/
+.git/
+.env
+*.bin
+*.dat
+*.pcap
+data/
+.vscode/
+.idea/

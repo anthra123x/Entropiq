@@ -2,11 +2,13 @@ pub mod affinity;
 pub mod client;
 pub mod config;
 pub mod model;
+pub mod web;
 
 pub use affinity::pin_current_thread_to_core;
 pub use client::{AlpacaAuth, AlpacaDataFeed, AlpacaStreamer};
 pub use config::EnvConfig;
 pub use model::{parse_alpaca_timestamp_ns, AlpacaQuote, AlpacaStreamMessage, AlpacaTrade};
+pub use web::{start_web_server, WebDashboardState};
 
 #[cfg(test)]
 mod tests {
