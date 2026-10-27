@@ -223,8 +223,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut interval = tokio::time::interval(Duration::from_millis(1));
 
     println!("[+] Supervisor iniciado. Monitorizando telemetria, memoria y tiempos de calculo...");
-    println!("[+] Estrategia de Ejecucion: MODO A (Equilibrado / Activo - Breakouts Coherentes & Cavitaciones)");
-    println!("[+] Parametros Modo A: TP=+0.25% (decay +0.10%), SL=-0.12% (cavit -0.05%), Cooldown=30s, Size=$20 USD");
+    println!("[+] Estrategia de Ejecucion: MODO ALTA PRECISION (Multi-Engine Aislado - Max Win Rate)");
+    println!("[+] Parametros: TP=+0.22% (decay +0.12%), SL=-0.20% (cavit -0.12%), Cooldown=45s, Size=$20 USD");
     println!("------------------------------------------------------------------------------------------\n");
 
     while running.load(Ordering::Relaxed) {
@@ -249,8 +249,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let return_frac = price_diff / pos.entry_price.max(1.0);
 
-                // 1. Take-Profit (+0.25% target or +0.10% with momentum exhaustion)
-                if return_frac >= 0.0025 || (return_frac >= 0.0010 && coherence < 0.20) {
+                // 1. Take-Profit (+0.22% target or +0.12% with momentum exhaustion)
+                if return_frac >= 0.0022 || (return_frac >= 0.0012 && coherence < 0.20) {
                     let exit_side = if pos.side_buy { "sell" } else { "buy" };
                     execute_alpaca_paper_order(token_arc.clone(), sym.clone(), exit_side, pos.notional);
                     let profit_usd = return_frac * pos.notional;
@@ -260,8 +260,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                     live_positions.remove(&sym);
                     last_broker_close_time.insert(sym.clone(), Instant::now());
-                // 2. Stop-Loss (-0.12% max adverse risk or -0.05% with adverse liquidity cavitation)
-                } else if return_frac <= -0.0012 || (phase == MarketQuantumPhase::LiquidityCavitation && return_frac <= -0.0005) {
+                // 2. Stop-Loss (-0.20% max adverse risk or -0.12% with adverse liquidity cavitation)
+                } else if return_frac <= -0.0020 || (phase == MarketQuantumPhase::LiquidityCavitation && return_frac <= -0.0012) {
                     let exit_side = if pos.side_buy { "sell" } else { "buy" };
                     execute_alpaca_paper_order(token_arc.clone(), sym.clone(), exit_side, pos.notional);
                     let loss_usd = (-return_frac) * pos.notional;
@@ -273,23 +273,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     last_broker_close_time.insert(sym.clone(), Instant::now());
                 }
             } else {
-                // No open position in this asset -> evaluate Mode A quantum entry criteria
+                // No open position in this asset -> evaluate High-Precision quantum entry criteria
                 let can_enter = last_broker_close_time
                     .get(&sym)
-                    .map(|t| t.elapsed() >= Duration::from_secs(30))
+                    .map(|t| t.elapsed() >= Duration::from_secs(45))
                     .unwrap_or(true);
 
-                let trigger_breakout = phase == MarketQuantumPhase::SuperconductingBreakout && coherence >= 0.40 && entropy <= 0.90;
-                let trigger_cavitation = phase == MarketQuantumPhase::LiquidityCavitation && (micro - mid).abs() > (mid * 0.00005);
+                let is_skewed = (micro - mid).abs() > (mid * 0.00008);
+                let has_quantum_order = coherence >= 0.25 || entropy <= 0.85;
 
-                if can_enter && (trigger_breakout || trigger_cavitation) {
-                    let side_buy = micro >= mid;
+                let trigger_breakout = phase == MarketQuantumPhase::SuperconductingBreakout && coherence >= 0.35 && entropy <= 0.90;
+                let trigger_cavitation = phase == MarketQuantumPhase::LiquidityCavitation && is_skewed && has_quantum_order;
+
+                if can_enter && (trigger_breakout || trigger_cavitation) && micro != mid {
+                    let side_buy = micro > mid;
                     let order_side = if side_buy { "buy" } else { "sell" };
-                    let notional = 20.0; // Mode A: conservative $20.00 USD notional
+                    let notional = 20.0; // High-precision $20.00 USD notional
                     execute_alpaca_paper_order(token_arc.clone(), sym.clone(), order_side, notional);
                     let trigger_reason = if trigger_breakout { "BREAKOUT" } else { "CAVITACION" };
                     println!(
-                        " \x1b[1;36m[ALPACA MODO-A: ENTRADA {} ({})]\x1b[0m {} a ${:.2} | Micro: ${:.2} | Coher: {:.3} | S: {:.3}",
+                        " \x1b[1;36m[ALPACA ALTA-PRECISION: ENTRADA {} ({})]\x1b[0m {} a ${:.2} | Micro: ${:.2} | Coher: {:.3} | S: {:.3}",
                         order_side.to_uppercase(), trigger_reason, sym, mid, micro, coherence, entropy
                     );
                     live_positions.insert(

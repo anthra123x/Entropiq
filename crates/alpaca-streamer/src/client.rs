@@ -1,6 +1,7 @@
 use crate::model::{AlpacaStreamMessage, AuthMessage, SubscribeMessage};
 use futures_util::{SinkExt, StreamExt};
 use quantum_engine::{QuantumAnalyticsSnapshot, QuantumMarketEngine};
+use std::collections::HashMap;
 use std::error::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_tungstenite::connect_async;
@@ -22,7 +23,8 @@ pub enum AlpacaAuth {
 pub struct AlpacaStreamer {
     auth: AlpacaAuth,
     feed: AlpacaDataFeed,
-    engine: QuantumMarketEngine,
+    default_tick_size: f64,
+    engines: HashMap<String, QuantumMarketEngine>,
 }
 
 impl AlpacaStreamer {
@@ -30,7 +32,8 @@ impl AlpacaStreamer {
         Self {
             auth: AlpacaAuth::KeySecret { key, secret },
             feed,
-            engine: QuantumMarketEngine::new(tick_size),
+            default_tick_size: tick_size,
+            engines: HashMap::new(),
         }
     }
 
@@ -38,7 +41,8 @@ impl AlpacaStreamer {
         Self {
             auth: AlpacaAuth::OAuthToken(token),
             feed,
-            engine: QuantumMarketEngine::new(tick_size),
+            default_tick_size: tick_size,
+            engines: HashMap::new(),
         }
     }
 
@@ -143,64 +147,24 @@ impl AlpacaStreamer {
                 match parsed_messages {
                     Ok(messages) => {
                         for m in messages {
-                            match m {
-                                AlpacaStreamMessage::Quote(q) => {
-                                    let quote = q.to_microstructure_quote(current_time_ns);
-                                    if let Some(snap) = self.engine.on_quote(quote) {
-                                        on_snapshot(&q.symbol, &snap);
-                                    }
-                                }
-                                AlpacaStreamMessage::Trade(t) => {
-                                    let mid = self
-                                        .engine
-                                        .tracker
-                                        .current_quote
-                                        .map(|q| q.mid_price())
-                                        .unwrap_or(t.price);
-                                    let trade = t.to_microstructure_trade(current_time_ns, mid);
-                                    if let Some(snap) = self.engine.on_trade(trade) {
-                                        on_snapshot(&t.symbol, &snap);
-                                    }
-                                }
-                                AlpacaStreamMessage::Subscription { trades, quotes } => {
-                                    println!("[AlpacaStreamer] Suscripcion confirmada: trades={:?}, quotes={:?}", trades, quotes);
-                                }
-                                AlpacaStreamMessage::Error { msg, code } => {
-                                    eprintln!("[AlpacaStreamer] Error from Alpaca (code {}): {}", code, msg);
-                                }
-                                _ => {}
-                            }
+                            Self::process_message(
+                                &mut self.engines,
+                                self.default_tick_size,
+                                m,
+                                current_time_ns,
+                                &mut on_snapshot,
+                            );
                         }
                     }
                     Err(e) => {
                         if let Ok(single) = serde_json::from_str::<AlpacaStreamMessage>(&text) {
-                            match single {
-                                AlpacaStreamMessage::Quote(q) => {
-                                    let quote = q.to_microstructure_quote(current_time_ns);
-                                    if let Some(snap) = self.engine.on_quote(quote) {
-                                        on_snapshot(&q.symbol, &snap);
-                                    }
-                                }
-                                AlpacaStreamMessage::Trade(t) => {
-                                    let mid = self
-                                        .engine
-                                        .tracker
-                                        .current_quote
-                                        .map(|q| q.mid_price())
-                                        .unwrap_or(t.price);
-                                    let trade = t.to_microstructure_trade(current_time_ns, mid);
-                                    if let Some(snap) = self.engine.on_trade(trade) {
-                                        on_snapshot(&t.symbol, &snap);
-                                    }
-                                }
-                                AlpacaStreamMessage::Subscription { trades, quotes } => {
-                                    println!("[AlpacaStreamer] Suscripcion confirmada: trades={:?}, quotes={:?}", trades, quotes);
-                                }
-                                AlpacaStreamMessage::Error { msg, code } => {
-                                    eprintln!("[AlpacaStreamer] Error from Alpaca (code {}): {}", code, msg);
-                                }
-                                _ => {}
-                            }
+                            Self::process_message(
+                                &mut self.engines,
+                                self.default_tick_size,
+                                single,
+                                current_time_ns,
+                                &mut on_snapshot,
+                            );
                         } else {
                             eprintln!("[AlpacaStreamer] Warning al deserializar: {:?} | Raw: {}", e, text);
                         }
@@ -210,5 +174,63 @@ impl AlpacaStreamer {
         }
 
         Ok(())
+    }
+
+    fn get_engine_mut<'a>(
+        engines: &'a mut HashMap<String, QuantumMarketEngine>,
+        symbol: &str,
+        default_tick_size: f64,
+    ) -> &'a mut QuantumMarketEngine {
+        engines.entry(symbol.to_string()).or_insert_with(|| {
+            let tick = match symbol {
+                s if s.starts_with("BTC") => 0.50,
+                s if s.starts_with("ETH") => 0.05,
+                s if s.starts_with("SOL") => 0.01,
+                _ => default_tick_size,
+            };
+            QuantumMarketEngine::new(tick)
+        })
+    }
+
+    fn process_message<F>(
+        engines: &mut HashMap<String, QuantumMarketEngine>,
+        default_tick_size: f64,
+        msg: AlpacaStreamMessage,
+        current_time_ns: u64,
+        on_snapshot: &mut F,
+    ) where
+        F: FnMut(&str, &QuantumAnalyticsSnapshot),
+    {
+        match msg {
+            AlpacaStreamMessage::Quote(q) => {
+                let engine = Self::get_engine_mut(engines, &q.symbol, default_tick_size);
+                let quote = q.to_microstructure_quote(current_time_ns);
+                if let Some(snap) = engine.on_quote(quote) {
+                    on_snapshot(&q.symbol, &snap);
+                }
+            }
+            AlpacaStreamMessage::Trade(t) => {
+                let engine = Self::get_engine_mut(engines, &t.symbol, default_tick_size);
+                let mid = engine
+                    .tracker
+                    .current_quote
+                    .map(|q| q.mid_price())
+                    .unwrap_or(t.price);
+                let trade = t.to_microstructure_trade(current_time_ns, mid);
+                if let Some(snap) = engine.on_trade(trade) {
+                    on_snapshot(&t.symbol, &snap);
+                }
+            }
+            AlpacaStreamMessage::Subscription { trades, quotes } => {
+                println!(
+                    "[AlpacaStreamer] Suscripcion confirmada: trades={:?}, quotes={:?}",
+                    trades, quotes
+                );
+            }
+            AlpacaStreamMessage::Error { msg, code } => {
+                eprintln!("[AlpacaStreamer] Error from Alpaca (code {}): {}", code, msg);
+            }
+            _ => {}
+        }
     }
 }
