@@ -7,11 +7,11 @@ WORKDIR /usr/src/entropiq
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates pkg-config && rm -rf /var/lib/apt/lists/*
 
 # Copy workspace sources
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY crates ./crates
 
 # Compile supervisor binary in release mode
-RUN cargo build --release --bin supervisor
+RUN cargo build --release --bin supervisor -p alpaca-streamer
 
 # Stage 2: Ultra-light runtime container (< 30 MB)
 FROM debian:bookworm-slim
