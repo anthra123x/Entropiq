@@ -402,7 +402,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[+] Supervisor iniciado. Monitorizando telemetria, memoria y tiempos de calculo...");
     println!("[+] Especializacion de Mercado: WALL STREET EQUITIES IEX (SPY, QQQ, NVDA, AAPL, TSLA...)");
     println!("[+] Lead-Lag Cuantico: SPY/QQQ Macro Index Bias -> Arbitraje Estadistico en Acciones");
-    println!("[+] Parametros: TP=+0.18% (decay +0.08%), SL=-0.12% (cavit -0.06%), Cooldown=45s, Size=$25 USD");
+    println!("[+] Parametros: TP=+0.18% (decay +0.08%), SL=-0.12% (cavit -0.06%), Cooldown=45s, Size=Kelly-Dinamico (2% equity cap, VPIN guard)");
     println!("------------------------------------------------------------------------------------------\n");
 
     while running.load(Ordering::Relaxed) {
@@ -474,10 +474,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 *coh_baseline = 0.95 * (*coh_baseline) + 0.05 * coherence;
                 let has_quantum_order = coherence >= 0.28 && entropy <= 0.80 && coherence >= (*coh_baseline * 0.90);
 
+                // VPIN toxic-flow gate: block entry when adverse selection is elevated
+                let vpin_val = web_state.read().map(|g| g.vpin).unwrap_or(0.0);
+                let is_vpin_safe = vpin_val < 0.55;
+
                 let trigger_breakout = phase == MarketQuantumPhase::SuperconductingBreakout && coherence >= 0.35 && entropy <= 0.88;
                 let trigger_cavitation = phase == MarketQuantumPhase::LiquidityCavitation && is_skewed && has_quantum_order;
 
-                if can_enter && (trigger_breakout || trigger_cavitation) && micro != mid {
+                if can_enter && is_vpin_safe && (trigger_breakout || trigger_cavitation) && micro != mid {
                     let side_buy = micro > mid;
                     let order_side = if side_buy { "buy" } else { "sell" };
 
@@ -489,14 +493,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
 
                     if is_aligned_with_macro {
-                        let notional = 25.0; // High-precision $25.00 USD notional in equities
+                        // Dynamic Kelly-scaled notional: base $20 * kelly_fraction, capped at 2% of live equity
+                        let live_eq = auditor.current_equity.max(1000.0);
+                        let kelly_f = auditor.kelly_leverage(coherence).clamp(0.2, 3.0);
+                        let max_notional = live_eq * 0.02; // 2% equity cap per trade
+                        let notional = (20.0 * kelly_f).min(max_notional).max(10.0);
+                        let notional = (notional * 100.0).round() / 100.0; // round to cents
                         let qty = ((notional / mid) * 100.0).round() / 100.0;
                         let qty = qty.max(0.01);
                         if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, order_side, (None, Some(notional))).await {
                             let trigger_reason = if trigger_breakout { "BREAKOUT" } else { "CAVITACION" };
                             println!(
-                                " \x1b[1;36m[ALPACA EQUITIES: ENTRADA {} ({})]\x1b[0m {} a ${:.2} (qty: {:.2}) | Micro: ${:.2} | Bias SPY: {:.2} | Coher: {:.3} | S: {:.3}",
-                                order_side.to_uppercase(), trigger_reason, sym, mid, qty, micro, current_market_bias, coherence, entropy
+                                " \x1b[1;36m[ALPACA EQUITIES: ENTRADA {} ({})]\x1b[0m {} a ${:.2} (qty: {:.2}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
+                                order_side.to_uppercase(), trigger_reason, sym, mid, qty, notional, kelly_f, vpin_val, coherence, entropy
                             );
                             live_positions.insert(
                                 sym.clone(),
@@ -511,6 +520,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             );
                         }
                     }
+                } else if can_enter && !is_vpin_safe && (trigger_breakout || trigger_cavitation) {
+                    println!(
+                        " \x1b[1;33m[VPIN BLOCK]\x1b[0m Entrada bloqueada en {} — Flujo toxico detectado (VPIN: {:.3} >= 0.55)",
+                        sym, vpin_val
+                    );
                 }
             }
         }
