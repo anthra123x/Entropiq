@@ -33,7 +33,7 @@ impl PhaseClassifier {
         // Occurs when fluid velocity exceeds acoustic speed in liquidity (Mach >= 1.0),
         // during acute cavitation risk, or during severe toxic spread blowouts.
         let is_supersonic = snapshot.fluid_metrics.mach_number >= 1.0;
-        let is_toxic_shock = snapshot.is_toxic_flow && snapshot.vpin >= 0.65;
+        let is_toxic_shock = snapshot.is_toxic_flow && snapshot.vpin >= 0.75;
         if is_supersonic || snapshot.fluid_metrics.is_cavitation_risk || is_toxic_shock {
             let conf = (snapshot.fluid_metrics.mach_number / 2.0).clamp(0.75, 1.0);
             return (MarketQuantumPhase::LiquidityCavitation, conf);
@@ -52,7 +52,7 @@ impl PhaseClassifier {
         let has_macroscopic_coherence = snapshot.quantum_coherence >= 0.25;
         let is_low_entropy = snapshot.normalized_entropy <= 0.82 && snapshot.entropy_production_rate <= 0.50;
         let is_laminar_subsonic = snapshot.fluid_metrics.mach_number < 0.95;
-        let is_pure_flow = !snapshot.is_toxic_flow && snapshot.vpin < 0.50;
+        let is_pure_flow = !snapshot.is_toxic_flow && snapshot.vpin < 0.65;
 
         if max_tunnel > 0.70
             && has_macroscopic_coherence
@@ -72,7 +72,7 @@ impl PhaseClassifier {
         if snapshot.quantum_coherence >= 0.18
             && snapshot.normalized_entropy < 0.78
             && snapshot.fluid_metrics.mach_number < 0.60
-            && snapshot.vpin < 0.45
+            && snapshot.vpin < 0.60
             && !snapshot.is_toxic_flow
         {
             let conf = (1.0 - snapshot.normalized_entropy).clamp(0.55, 0.95);

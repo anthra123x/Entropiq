@@ -119,19 +119,34 @@ impl PortfolioAuditor {
         if self.max_drawdown <= 1e-6 { 99.99 } else { cagr / self.max_drawdown }
     }
 
-    /// Dynamic Fractional Kelly Leverage: f* = ((b * p - q) / b) * Coherence
-    /// Maximizes capital geometric growth rate while scaling down in low-coherence states.
+    /// Dynamic Fractional Kelly Leverage:
+    /// f* = (p * b - q) / b
+    /// where:
+    ///   p = win probability
+    ///   q = loss probability = 1.0 - p
+    ///   b = payoff ratio (average win / average loss)
+    /// Incorporates Bayesian prior (55% win rate, 1.75 payoff) when sample size < 8,
+    /// applies Half-Kelly for institutional ruin-probability minimization,
+    /// and scales smoothly by macroscopic quantum coherence.
     pub fn kelly_leverage(&self, coherence: f64) -> f64 {
-        let p = self.win_rate();
-        if self.total_trades < 5 || p <= 0.50 {
-            return 1.0;
-        }
-        let avg_win = self.avg_win_return().max(1e-5);
-        let avg_loss = self.avg_loss_return().max(1e-5);
-        let b = avg_win / avg_loss;
+        let (p, b) = if self.total_trades < 8 {
+            // Prior Bayesian parameters: 55% win rate, 1.75 payoff ratio (TP +0.35% / SL -0.20%)
+            (0.55, 1.75)
+        } else {
+            let win_p = self.win_rate().clamp(0.35, 0.85);
+            let avg_win = self.avg_win_return().max(0.0005);
+            let avg_loss = self.avg_loss_return().max(0.0005);
+            let payoff = (avg_win / avg_loss).clamp(0.60, 3.50);
+            (win_p, payoff)
+        };
+
         let q = 1.0 - p;
         let f_star = (p * b - q) / b;
-        (f_star.max(0.1) * 0.5 * (0.5 + 0.5 * coherence)).clamp(0.2, 3.0)
+
+        // Half-Kelly institutional rule: bet half of f* to reduce variance by 75%
+        let half_kelly = (f_star * 0.5).max(0.15);
+        let coherence_multiplier = (0.60 + 0.40 * coherence).clamp(0.60, 1.0);
+        (half_kelly * coherence_multiplier).clamp(0.20, 2.0)
     }
 }
 

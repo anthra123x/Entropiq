@@ -9,6 +9,8 @@ pub struct QuantumAnalyticsSnapshot {
     pub timestamp_ns: u64,
     pub mid_price: f64,
     pub micro_price: f64,
+    pub best_bid: f64,
+    pub best_ask: f64,
     pub von_neumann_entropy: f64,
     pub normalized_entropy: f64,
     pub entropy_production_rate: f64,
@@ -94,7 +96,7 @@ impl QuantumMarketEngine {
 
         // DYNAMIC BATH DECOHERENCE: Thermal dephasing couples to order flow toxicity (VPIN)
         let vpin = self.tracker.vpin;
-        let gamma_dephase = 0.5 + 8.0 * (vpin * vpin);
+        let gamma_dephase = 0.5 + 4.0 * (vpin * vpin);
 
         let h = MarketHamiltonian::build_with_cross_asset(&self.tracker, self.external_index_bias);
         let jumps = LindbladSolver::market_jump_operators_2x2(gamma_dephase, gamma_q_buy, gamma_q_sell);
@@ -140,7 +142,7 @@ impl QuantumMarketEngine {
 
         // Immediate dissipation injection into density matrix via jump operator
         let vpin = self.tracker.vpin;
-        let gamma_dephase = 0.5 + 8.0 * (vpin * vpin);
+        let gamma_dephase = 0.5 + 4.0 * (vpin * vpin);
         let gamma_buy = if trade.taker_side == Side::Buy { (trade.size / total_depth).min(2.0) } else { 0.0 };
         let gamma_sell = if trade.taker_side == Side::Sell { (trade.size / total_depth).min(2.0) } else { 0.0 };
 
@@ -214,12 +216,14 @@ impl QuantumMarketEngine {
             variance += diff * diff * depth_probs[i];
         }
 
-        let is_toxic_flow = vpin >= 0.55;
+        let is_toxic_flow = vpin >= 0.70;
 
         let mut snapshot = QuantumAnalyticsSnapshot {
             timestamp_ns: quote.timestamp_ns,
             mid_price: quote.mid_price(),
             micro_price: quote.micro_price(),
+            best_bid: quote.bid_price,
+            best_ask: quote.ask_price,
             von_neumann_entropy: vn_entropy,
             normalized_entropy: norm_entropy,
             entropy_production_rate: entropy_rate,

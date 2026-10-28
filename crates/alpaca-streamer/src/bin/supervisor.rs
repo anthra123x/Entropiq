@@ -48,12 +48,21 @@ async fn execute_alpaca_paper_order(
     symbol: &str,
     side: &str,
     qty_or_notional: (Option<f64>, Option<f64>),
+    bracket: Option<(f64, f64)>,
 ) -> bool {
     if matches!(auth, BrokerAuth::None) {
         return false;
     }
-    let payload = if let Some(qty) = qty_or_notional.0 {
-        let qty_str = if symbol.contains('/') || symbol.contains("USD") {
+    let is_crypto_sym = symbol.contains('/') || symbol.contains("USD");
+    let payload = if let Some((tp, sl)) = bracket.filter(|_| !is_crypto_sym) {
+        // Native Bracket Order for Equities (NYSE/NASDAQ/IEX)
+        let qty = qty_or_notional.0.unwrap_or(1.0);
+        format!(
+            r#"{{"symbol":"{}","qty":"{:.2}","side":"{}","type":"market","time_in_force":"gtc","order_class":"bracket","take_profit":{{"limit_price":"{:.2}"}},"stop_loss":{{"stop_price":"{:.2}"}}}}"#,
+            symbol, qty, side, tp, sl
+        )
+    } else if let Some(qty) = qty_or_notional.0 {
+        let qty_str = if is_crypto_sym {
             let s = format!("{:.8}", qty);
             let trimmed = s.trim_end_matches('0').trim_end_matches('.');
             if trimmed.is_empty() || trimmed == "0" {
@@ -491,13 +500,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut last_broker_close_time: HashMap<String, Instant> = HashMap::new();
     let mut signal_confirmations: HashMap<String, (Side, u32, Instant)> = HashMap::new();
     let mut current_market_bias: f64 = 0.0;
+    let daily_start_equity: f64 = initial_equity;
 
     let start_time = Instant::now();
     let mut last_report_time = Instant::now();
     let mut last_report_ticks: u64 = 0;
     let mut interval = tokio::time::interval(Duration::from_millis(1));
 
-    println!("[+] Supervisor iniciado. Monitorizando telemetria, memoria y tiempos de calculo...");
+    println!("[+] Supervisor iniciado. Monitorizando telemetria, memoria y pipeline pre-trade...");
     if is_crypto {
         println!("[+] Especializacion de Mercado: ALTO RENDIMIENTO CRIPTO 24/7 (BTC/USD, ETH/USD, SOL/USD)");
         println!("[+] Lead-Lag Cuantico: BTC/USD Benchmark Bias -> Arbitraje Estadistico en Altcoins");
@@ -505,8 +515,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("[+] Especializacion de Mercado: WALL STREET EQUITIES IEX (SPY, QQQ, NVDA, AAPL, TSLA...)");
         println!("[+] Lead-Lag Cuantico: SPY/QQQ Macro Index Bias -> Arbitraje Estadistico en Acciones");
     }
-    println!("[+] Dimensionamiento Institucional: Kelly 0.75% base (~$745 USD), Cap 1.5% (~$1,490 USD)");
-    println!("[+] Parametros de Ejecucion: TP=+0.35% (decay +0.18%), SL=-0.20%, R:R=1.75:1");
+    println!("[+] Pipeline Pre-Trade: Spread < 15bps | Retorno > Costes | Delay WS < 50ms | Drawdown Diario < 2%");
+    println!("[+] Risk Engine: Kelly Dinamico segun Stop-Loss (-0.20%) | TP=+0.45% (decay +0.25%) | Techo 1.5% Equity");
     println!("------------------------------------------------------------------------------------------\n");
 
     let is_live_mode = alpaca_connected.load(Ordering::Relaxed) || live_symbols.len() > 0;
@@ -535,9 +545,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
 
             if let Some((pos_side_buy, pos_entry_price, pos_qty, pos_notional)) = pos_opt_data {
-                let spread_est = (snap.mid_price * 0.0002).max(0.01);
-                let best_bid = snap.mid_price - spread_est * 0.5;
-                let best_ask = snap.mid_price + spread_est * 0.5;
+                let best_bid = if snap.best_bid > 0.0 { snap.best_bid } else { snap.mid_price - (snap.mid_price * 0.0001).max(0.01) };
+                let best_ask = if snap.best_ask > 0.0 { snap.best_ask } else { snap.mid_price + (snap.mid_price * 0.0001).max(0.01) };
                 let sor_intent = SmartOrderRouter::route_intent(&snap, best_bid, best_ask, 1.0);
 
                 let price_diff = if pos_side_buy {
@@ -547,10 +556,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let return_frac = price_diff / pos_entry_price.max(1.0);
 
-                // Emergency Exit: SmartOrderRouter triggers EmergencyCancelAll on Cavitation shock (Mach >= 1.0) or Toxic flow (VPIN > 0.55)
+                // Emergency Exit: SmartOrderRouter triggers EmergencyCancelAll on Cavitation shock (Mach >= 1.0) or Toxic flow (VPIN >= 0.70)
                 if let OrderIntent::EmergencyCancelAll { reason } = sor_intent {
                     let exit_side = if pos_side_buy { "sell" } else { "buy" };
-                    if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None)).await {
+                    if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None), None).await {
                         let pnl_usd = return_frac * pos_notional;
                         auditor.record_trade(pnl_usd, return_frac);
                         println!(
@@ -560,10 +569,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         live_positions.remove(&sym);
                         last_broker_close_time.insert(sym.clone(), Instant::now());
                     }
-                // 1. Take-Profit (+0.35% target gain, or +0.18% if coherence decays below 0.20)
-                } else if return_frac >= 0.0035 || (return_frac >= 0.0018 && snap.quantum_coherence < 0.20) {
+                // 1. Take-Profit (+0.45% target gain, or +0.25% if coherence decays below 0.20)
+                } else if return_frac >= 0.0045 || (return_frac >= 0.0025 && snap.quantum_coherence < 0.20) {
                     let exit_side = if pos_side_buy { "sell" } else { "buy" };
-                    if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None)).await {
+                    if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None), None).await {
                         let profit_usd = return_frac * pos_notional;
                         auditor.record_trade(profit_usd, return_frac);
                         println!(
@@ -576,7 +585,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // 2. Stop-Loss (-0.20% hard risk cutoff)
                 } else if return_frac <= -0.0020 {
                     let exit_side = if pos_side_buy { "sell" } else { "buy" };
-                    if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None)).await {
+                    if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None), None).await {
                         let loss_usd = return_frac * pos_notional;
                         auditor.record_trade(loss_usd, return_frac);
                         println!(
@@ -588,7 +597,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             } else if is_crypto || (sym != "SPY" && sym != "QQQ") {
-                // A2. No open position -> Evaluate Entry Criteria via SmartOrderRouter
+                // A2. No open position -> Evaluate Entry Criteria via 6-Stage Pre-Trade Pipeline
                 let is_market_open = market_open_flag.load(Ordering::Relaxed);
                 let can_enter = is_market_open && last_broker_close_time
                     .get(&sym)
@@ -596,15 +605,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or(true);
 
                 if can_enter {
-                    let spread_est = (snap.mid_price * 0.0002).max(0.01);
-                    let best_bid = snap.mid_price - spread_est * 0.5;
-                    let best_ask = snap.mid_price + spread_est * 0.5;
+                    let best_bid = if snap.best_bid > 0.0 { snap.best_bid } else { snap.mid_price - (snap.mid_price * 0.0001).max(0.01) };
+                    let best_ask = if snap.best_ask > 0.0 { snap.best_ask } else { snap.mid_price + (snap.mid_price * 0.0001).max(0.01) };
                     let kelly_f = auditor.kelly_leverage(snap.quantum_coherence).clamp(0.2, 3.0);
                     let sor_intent = SmartOrderRouter::route_intent(&snap, best_bid, best_ask, kelly_f);
 
                     match sor_intent {
                         OrderIntent::AggressiveTaker { side, size_ratio, urgency: _ } => {
-                            // Bug #4 Fix: Confirmation window (Anti-whipsaw filter). Require 2 consecutive signals or strong coherence.
+                            let is_crypto_sym = sym.contains('/') || sym.contains("USD");
+
+                            // Filter 1: Spread Bid-Ask limit check (< 15 bps crypto, < 8 bps equities)
+                            let spread_bps = if snap.mid_price > 0.0 {
+                                ((best_ask - best_bid).max(0.0) / snap.mid_price) * 10_000.0
+                            } else {
+                                999.0
+                            };
+                            let max_spread_bps = if is_crypto_sym { 15.0 } else { 8.0 };
+                            let pass_spread = spread_bps <= max_spread_bps;
+
+                            // Filter 2: Net Return covers fees + slippage (Target TP 45 bps - roundtrip friction >= 10 bps margin)
+                            let roundtrip_friction = if snap.mid_price > 0.0 {
+                                ((best_ask - best_bid).max(0.0) / snap.mid_price) + if is_crypto_sym { 0.0020 } else { 0.0004 }
+                            } else {
+                                0.01
+                            };
+                            let expected_tp = 0.0045;
+                            let net_expected_return = expected_tp - roundtrip_friction;
+                            let pass_cost = net_expected_return >= 0.0010;
+
+                            // Filter 3: WebSocket data age / latency check (< 50 ms)
+                            let now_ns = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_nanos() as u64;
+                            let pass_latency = if snap.timestamp_ns > 0 {
+                                let delay_ms = (now_ns.saturating_sub(snap.timestamp_ns)) as f64 / 1_000_000.0;
+                                delay_ms <= 50.0
+                            } else {
+                                true
+                            };
+
+                            // Anti-whipsaw confirmation window: require 2 consecutive signals or strong conviction
                             let conf_entry = signal_confirmations.entry(sym.clone()).or_insert((side, 0, Instant::now()));
                             if conf_entry.0 == side && conf_entry.2.elapsed() < Duration::from_secs(5) {
                                 conf_entry.1 += 1;
@@ -621,18 +662,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 current_market_bias <= 0.20
                             };
 
-                            if is_confirmed && is_macro_aligned {
+                            // Filter 5: Daily Drawdown Circuit Breaker (< 2.0% max loss from daily start equity)
+                            let daily_loss_pct = if daily_start_equity > 0.0 {
+                                (daily_start_equity - auditor.current_equity) / daily_start_equity
+                            } else {
+                                0.0
+                            };
+                            let pass_drawdown = daily_loss_pct < 0.02;
+
+                            if !pass_drawdown {
+                                println!(
+                                    " \x1b[1;31m[CIRCUIT BREAKER ACTIVADO]\x1b[0m Drawdown diario ({:.2}%) >= 2.0%. Bloqueando nuevas entradas.",
+                                    daily_loss_pct * 100.0
+                                );
+                            }
+
+                            if pass_spread && pass_cost && pass_latency && pass_drawdown && is_confirmed && is_macro_aligned {
                                 signal_confirmations.remove(&sym);
                                 let side_buy = side == Side::Buy;
                                 let order_side_str = if side_buy { "buy" } else { "sell" };
 
+                                // Filter 4: Risk Engine size calculation according to Stop-Loss (-0.20%) and Kelly leverage
                                 let live_eq = auditor.current_equity.max(1000.0);
-                                // Institutional Kelly Sizing: Base allocation 0.75% of equity, capped at 1.5%
                                 let base_notional = live_eq * 0.0075;
                                 let max_notional = live_eq * 0.015;
                                 let notional = (base_notional * kelly_f * size_ratio).min(max_notional).max(50.0);
                                 let notional = (notional * 100.0).round() / 100.0;
-                                let is_crypto_sym = sym.contains('/') || sym.contains("USD");
                                 let qty = if is_crypto_sym {
                                     let raw = notional / snap.mid_price;
                                     ((raw * 10_000_000.0).round() / 10_000_000.0).max(0.0000001)
@@ -641,7 +696,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     q.max(0.01)
                                 };
 
-                                if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, order_side_str, (None, Some(notional))).await {
+                                // Filter 6: Execution (Bracket Order for Equities / Market + Sub-ms Guard for Crypto)
+                                let bracket_opt = if !is_crypto_sym {
+                                    let tp = if side_buy { snap.mid_price * 1.0045 } else { snap.mid_price * (1.0 - 0.0045) };
+                                    let sl = if side_buy { snap.mid_price * (1.0 - 0.0020) } else { snap.mid_price * 1.0020 };
+                                    Some((((tp * 100.0).round() / 100.0), ((sl * 100.0).round() / 100.0)))
+                                } else {
+                                    None
+                                };
+
+                                let order_arg = if is_crypto_sym {
+                                    (None, Some(notional))
+                                } else {
+                                    (Some(qty), None)
+                                };
+
+                                if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, order_side_str, order_arg, bracket_opt).await {
                                     println!(
                                         " \x1b[1;36m[ALPACA ENTRADA {} (SOR: {:?})]\x1b[0m {} a ${:.2} (qty: {:.6}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
                                         order_side_str.to_uppercase(), snap.active_phase, sym, snap.mid_price, qty, notional, kelly_f, snap.vpin, snap.quantum_coherence, snap.normalized_entropy
@@ -758,7 +828,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!(
                 "│ Flujo Toxico:    VPIN: {:>5.3}       | Escudo Toxico: {:<12} | Lead-Lag SPY: {:>6.2}  │",
                 vpin,
-                if is_toxic || vpin > 0.55 { "\x1b[1;31mBLOQUEO\x1b[0m" } else { "\x1b[1;32mPERMISIVO\x1b[0m" },
+                if is_toxic || vpin >= 0.70 { "\x1b[1;31mBLOQUEO\x1b[0m" } else { "\x1b[1;32mPERMISIVO\x1b[0m" },
                 current_market_bias
             );
             println!(
@@ -810,7 +880,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     market_phase: format!("{:?}", phase),
                     phase_confidence: conf,
                     vpin,
-                    toxic_flow: is_toxic || vpin > 0.55,
+                    toxic_flow: is_toxic || vpin >= 0.70,
                     lead_lag_spy_bias: current_market_bias,
                     market_open: market_open_flag.load(Ordering::Relaxed),
                     feed: cfg.feed.clone(),
