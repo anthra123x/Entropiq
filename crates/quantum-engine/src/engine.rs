@@ -197,11 +197,18 @@ impl QuantumMarketEngine {
             0.0
         };
 
+        // Scale-invariant price normalization:
+        // On $100 equities, scale is 1.0.
+        // On BTC ($70,000) or high nominal assets, normalizes nominal dollar jump to prevent false supersonic spikes.
+        let scale = (quote.mid_price() / 100.0).max(1.0);
+        let normalized_price_delta = price_delta / scale;
+        let normalized_spread = quote.spread() / scale;
+
         let fluid_metrics = LiquidityFluidModel::compute_metrics(
             total_depth,
-            quote.spread(),
-            price_delta,
-            dt_sec,
+            normalized_spread,
+            normalized_price_delta,
+            dt_sec.max(0.005),
         );
 
         // 4. Depth quantum walk wavepacket distribution & spatial variance

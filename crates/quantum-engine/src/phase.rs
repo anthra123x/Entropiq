@@ -30,11 +30,11 @@ impl PhaseClassifier {
     /// Classifies the instantaneous market quantum phase with strict econophysical consistency.
     pub fn classify(snapshot: &QuantumAnalyticsSnapshot) -> (MarketQuantumPhase, f64) {
         // 1. Phase 3: Liquidity Cavitation (Supersonic Plasma Shock / Void Collapse)
-        // Occurs when fluid velocity exceeds acoustic speed in liquidity (Mach >= 1.0),
+        // Occurs when fluid velocity exceeds acoustic speed in liquidity (Mach >= 1.5),
         // during acute cavitation risk, or during severe toxic spread blowouts.
-        let is_supersonic = snapshot.fluid_metrics.mach_number >= 1.0;
+        let is_supersonic = snapshot.fluid_metrics.mach_number >= 1.5;
         let is_toxic_shock = snapshot.is_toxic_flow && snapshot.vpin >= 0.75;
-        if is_supersonic || snapshot.fluid_metrics.is_cavitation_risk || is_toxic_shock {
+        if is_supersonic || (snapshot.fluid_metrics.is_cavitation_risk && snapshot.fluid_metrics.mach_number >= 1.0) || is_toxic_shock {
             let conf = (snapshot.fluid_metrics.mach_number / 2.0).clamp(0.75, 1.0);
             return (MarketQuantumPhase::LiquidityCavitation, conf);
         }

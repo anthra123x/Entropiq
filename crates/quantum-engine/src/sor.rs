@@ -36,13 +36,12 @@ impl SmartOrderRouter {
         best_ask: f64,
         base_size_multiplier: f64,
     ) -> OrderIntent {
-        // 1. Safety Filter: Cavitation shock (Mach >= 1.0 or LiquidityCavitation phase) -> Emergency retreat
+        // 1. Safety Filter: Cavitation shock (Mach >= 1.5 or LiquidityCavitation with verified cavitation risk) -> Emergency retreat
         if snapshot.active_phase == MarketQuantumPhase::LiquidityCavitation
-            || snapshot.fluid_metrics.is_cavitation_risk
-            || snapshot.fluid_metrics.mach_number >= 1.0
+            && (snapshot.fluid_metrics.is_cavitation_risk || snapshot.fluid_metrics.mach_number >= 1.5)
         {
             return OrderIntent::EmergencyCancelAll {
-                reason: "Fluid cavitation shock (Mach >= 1.0)",
+                reason: "Fluid cavitation shock (Mach >= 1.5)",
             };
         }
 

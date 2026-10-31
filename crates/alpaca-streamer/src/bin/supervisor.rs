@@ -42,12 +42,70 @@ struct LiveBrokerPosition {
     entry_time: Instant,
 }
 
+/// Closes 100% of an open position atomically on Alpaca Paper REST API.
+/// Uses DELETE /v2/positions/{symbol} to eliminate decimal rounding errors and 403 insufficient balance rejections.
+async fn close_alpaca_position(
+    client: &reqwest::Client,
+    auth: &BrokerAuth,
+    symbol: &str,
+) -> bool {
+    if matches!(auth, BrokerAuth::None) {
+        return false;
+    }
+    let clean_symbol = symbol.replace('/', "");
+    let url = format!("https://paper-api.alpaca.markets/v2/positions/{}", clean_symbol);
+    let mut req = client.delete(&url);
+
+    match auth {
+        BrokerAuth::OAuth(token) => {
+            req = req.header("Authorization", format!("Bearer {}", *token));
+        }
+        BrokerAuth::KeySecret { key, secret } => {
+            req = req
+                .header("APCA-API-KEY-ID", key.as_str())
+                .header("APCA-API-SECRET-KEY", secret.as_str());
+        }
+        BrokerAuth::None => return false,
+    }
+
+    match req.send().await {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() {
+                println!(
+                    " \x1b[1;32m[ALPACA POSITION CLOSED]\x1b[0m Posicion liquidada atomicamente en Broker: {}",
+                    symbol
+                );
+                true
+            } else if status.as_u16() == 404 {
+                println!(
+                    " \x1b[1;33m[ALPACA POSITION SYNC]\x1b[0m Posicion ya liquidada previamente en Broker: {}",
+                    symbol
+                );
+                true
+            } else {
+                let err_text = resp.text().await.unwrap_or_default();
+                eprintln!(
+                    " \x1b[1;31m[ALPACA CLOSE ERROR ({})]\x1b[0m Fallo al liquidar {}: {}",
+                    status, symbol, err_text.trim()
+                );
+                false
+            }
+        }
+        Err(e) => {
+            eprintln!(" \x1b[1;31m[ALPACA NETWORK ERROR]\x1b[0m Error enviando DELETE para {}: {:?}", symbol, e);
+            false
+        }
+    }
+}
+
 async fn execute_alpaca_paper_order(
     client: &reqwest::Client,
     auth: &BrokerAuth,
     symbol: &str,
     side: &str,
     qty_or_notional: (Option<f64>, Option<f64>),
+    limit_price: Option<f64>,
     bracket: Option<(f64, f64)>,
 ) -> bool {
     if matches!(auth, BrokerAuth::None) {
@@ -57,10 +115,30 @@ async fn execute_alpaca_paper_order(
     let payload = if let Some((tp, sl)) = bracket.filter(|_| !is_crypto_sym) {
         // Native Bracket Order for Equities (NYSE/NASDAQ/IEX)
         let qty = qty_or_notional.0.unwrap_or(1.0);
-        format!(
-            r#"{{"symbol":"{}","qty":"{:.2}","side":"{}","type":"market","time_in_force":"gtc","order_class":"bracket","take_profit":{{"limit_price":"{:.2}"}},"stop_loss":{{"stop_price":"{:.2}"}}}}"#,
-            symbol, qty, side, tp, sl
-        )
+        if let Some(lp) = limit_price {
+            format!(
+                r#"{{"symbol":"{}","qty":"{:.2}","side":"{}","type":"limit","limit_price":"{:.2}","time_in_force":"day","order_class":"bracket","take_profit":{{"limit_price":"{:.2}"}},"stop_loss":{{"stop_price":"{:.2}"}}}}"#,
+                symbol, qty, side, lp, tp, sl
+            )
+        } else {
+            format!(
+                r#"{{"symbol":"{}","qty":"{:.2}","side":"{}","type":"market","time_in_force":"gtc","order_class":"bracket","take_profit":{{"limit_price":"{:.2}"}},"stop_loss":{{"stop_price":"{:.2}"}}}}"#,
+                symbol, qty, side, tp, sl
+            )
+        }
+    } else if let Some(notional) = qty_or_notional.1 {
+        // Aggressive Limit Order for Crypto: Protect against latency slippage using IOC (Immediate or Cancel)
+        if let Some(lp) = limit_price {
+            format!(
+                r#"{{"symbol":"{}","notional":"{:.2}","side":"{}","type":"limit","limit_price":"{:.2}","time_in_force":"ioc"}}"#,
+                symbol, notional, side, lp
+            )
+        } else {
+            format!(
+                r#"{{"symbol":"{}","notional":"{:.2}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
+                symbol, notional, side
+            )
+        }
     } else if let Some(qty) = qty_or_notional.0 {
         let qty_str = if is_crypto_sym {
             let s = format!("{:.8}", qty);
@@ -73,15 +151,17 @@ async fn execute_alpaca_paper_order(
         } else {
             format!("{:.2}", qty)
         };
-        format!(
-            r#"{{"symbol":"{}","qty":"{}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
-            symbol, qty_str, side
-        )
-    } else if let Some(notional) = qty_or_notional.1 {
-        format!(
-            r#"{{"symbol":"{}","notional":"{:.2}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
-            symbol, notional, side
-        )
+        if let Some(lp) = limit_price {
+            format!(
+                r#"{{"symbol":"{}","qty":"{}","side":"{}","type":"limit","limit_price":"{:.2}","time_in_force":"ioc"}}"#,
+                symbol, qty_str, side, lp
+            )
+        } else {
+            format!(
+                r#"{{"symbol":"{}","qty":"{}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
+                symbol, qty_str, side
+            )
+        }
     } else {
         return false;
     };
@@ -544,7 +624,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (pos.side_buy, pos.entry_price, pos.qty, pos.notional)
             });
 
-            if let Some((pos_side_buy, pos_entry_price, pos_qty, pos_notional)) = pos_opt_data {
+            if let Some((pos_side_buy, pos_entry_price, _pos_qty, pos_notional)) = pos_opt_data {
                 let best_bid = if snap.best_bid > 0.0 { snap.best_bid } else { snap.mid_price - (snap.mid_price * 0.0001).max(0.01) };
                 let best_ask = if snap.best_ask > 0.0 { snap.best_ask } else { snap.mid_price + (snap.mid_price * 0.0001).max(0.01) };
                 let sor_intent = SmartOrderRouter::route_intent(&snap, best_bid, best_ask, 1.0);
@@ -556,14 +636,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let return_frac = price_diff / pos_entry_price.max(1.0);
 
-                // Emergency Exit: SmartOrderRouter triggers EmergencyCancelAll on Cavitation shock (Mach >= 1.0) or Toxic flow (VPIN >= 0.70)
+                // Emergency Exit: SmartOrderRouter triggers EmergencyCancelAll on Cavitation shock (Mach >= 1.5) or Toxic flow (VPIN >= 0.70)
                 if let OrderIntent::EmergencyCancelAll { reason } = sor_intent {
-                    let exit_side = if pos_side_buy { "sell" } else { "buy" };
-                    if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None), None).await {
+                    if close_alpaca_position(&http_client, &broker_auth, &sym).await {
                         let pnl_usd = return_frac * pos_notional;
                         auditor.record_trade(pnl_usd, return_frac);
                         println!(
-                            " \x1b[1;31m[ALPACA EMERGENCY EXIT ({})]\x1b[0m Posicion cerrada en {}: {:.2}% | PnL: ${:.3} USD",
+                            " \x1b[1;31m[ALPACA EMERGENCY EXIT ({})]\x1b[0m Posicion liquidada en {}: {:.2}% | PnL: ${:.3} USD",
                             reason, sym, return_frac * 100.0, pnl_usd
                         );
                         live_positions.remove(&sym);
@@ -571,12 +650,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 // 1. Take-Profit (+0.45% target gain, or +0.25% if coherence decays below 0.20)
                 } else if return_frac >= 0.0045 || (return_frac >= 0.0025 && snap.quantum_coherence < 0.20) {
-                    let exit_side = if pos_side_buy { "sell" } else { "buy" };
-                    if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None), None).await {
+                    if close_alpaca_position(&http_client, &broker_auth, &sym).await {
                         let profit_usd = return_frac * pos_notional;
                         auditor.record_trade(profit_usd, return_frac);
                         println!(
-                            " \x1b[1;32m[ALPACA TAKE-PROFIT]\x1b[0m Posicion cerrada en {}: +{:.2}% | Ganancia: +${:.2} USD",
+                            " \x1b[1;32m[ALPACA TAKE-PROFIT]\x1b[0m Posicion liquidada en {}: +{:.2}% | Ganancia: +${:.2} USD",
                             sym, return_frac * 100.0, profit_usd
                         );
                         live_positions.remove(&sym);
@@ -584,8 +662,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 // 2. Stop-Loss (-0.20% hard risk cutoff)
                 } else if return_frac <= -0.0020 {
-                    let exit_side = if pos_side_buy { "sell" } else { "buy" };
-                    if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, exit_side, (Some(pos_qty), None), None).await {
+                    if close_alpaca_position(&http_client, &broker_auth, &sym).await {
                         let loss_usd = return_frac * pos_notional;
                         auditor.record_trade(loss_usd, return_frac);
                         println!(
@@ -696,7 +773,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     q.max(0.01)
                                 };
 
-                                // Filter 6: Execution (Bracket Order for Equities / Market + Sub-ms Guard for Crypto)
+                                // Slippage Cap: 8 bps on crypto, 4 bps on equities to prevent latency penalty
+                                let slippage_cap = if is_crypto_sym { 0.0008 } else { 0.0004 };
+                                let limit_price = if side_buy {
+                                    snap.mid_price * (1.0 + slippage_cap)
+                                } else {
+                                    snap.mid_price * (1.0 - slippage_cap)
+                                };
+                                let limit_price_clamped = (limit_price * 100.0).round() / 100.0;
+
+                                // Filter 6: Execution (Aggressive Limit Order with Slippage Cap)
                                 let bracket_opt = if !is_crypto_sym {
                                     let tp = if side_buy { snap.mid_price * 1.0045 } else { snap.mid_price * (1.0 - 0.0045) };
                                     let sl = if side_buy { snap.mid_price * (1.0 - 0.0020) } else { snap.mid_price * 1.0020 };
@@ -711,10 +797,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     (Some(qty), None)
                                 };
 
-                                if execute_alpaca_paper_order(&http_client, &broker_auth, &sym, order_side_str, order_arg, bracket_opt).await {
+                                if execute_alpaca_paper_order(
+                                    &http_client,
+                                    &broker_auth,
+                                    &sym,
+                                    order_side_str,
+                                    order_arg,
+                                    Some(limit_price_clamped),
+                                    bracket_opt,
+                                ).await {
                                     println!(
-                                        " \x1b[1;36m[ALPACA ENTRADA {} (SOR: {:?})]\x1b[0m {} a ${:.2} (qty: {:.6}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
-                                        order_side_str.to_uppercase(), snap.active_phase, sym, snap.mid_price, qty, notional, kelly_f, snap.vpin, snap.quantum_coherence, snap.normalized_entropy
+                                        " \x1b[1;36m[ALPACA ENTRADA {} (SOR: {:?})]\x1b[0m {} a ${:.2} (Limit: ${:.2}, qty: {:.6}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
+                                        order_side_str.to_uppercase(), snap.active_phase, sym, snap.mid_price, limit_price_clamped, qty, notional, kelly_f, snap.vpin, snap.quantum_coherence, snap.normalized_entropy
                                     );
                                     live_positions.insert(
                                         sym.clone(),
