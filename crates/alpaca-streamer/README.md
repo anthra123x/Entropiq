@@ -10,7 +10,7 @@ Módulo de conectividad en tiempo real y ejecución con Alpaca Markets. Administ
 - `AlpacaStreamMessage`: Mensajería WebSocket: `Quote` (`AlpacaQuote`), `Trade` (`AlpacaTrade`), `Subscription`, `Error`.
 - `parse_alpaca_timestamp_ns`: Conversión zero-allocation de timestamps RFC3339/ISO8601 a nanosegundos Unix.
 - `pin_current_thread_to_core(core_id)`: Aislamiento institucional de hilos en CPU Linux vía `pthread_setaffinity_np`.
-- `start_web_server`: Endpoint HTTP para health check (`/health`) y dashboard en tiempo real (`WebDashboardState`).
+- `start_web_server`: Servidor HTTP asíncrono para health check (`/health`), estado JSON (`/api/status`) y panel interactivo tipo red neuronal (`WebDashboardState`, `SymbolStateTelemetry`, `PositionTelemetry`, `PipelineStepTelemetry`, `PipelineLogEntry`).
 
 ## 3. Dependencias
 - Internas: `quantum-engine`, `market-microstructure`, `market-simulator`.

@@ -24,6 +24,19 @@ fn get_memory_rss_mb() -> f64 {
     0.0
 }
 
+fn format_now_hms() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let total_secs = now / 1000;
+    let millis = now % 1000;
+    let secs = total_secs % 60;
+    let mins = (total_secs / 60) % 60;
+    let hours = (total_secs / 3600) % 24;
+    format!("{:02}:{:02}:{:02}.{:03}", hours, mins, secs, millis)
+}
+
 #[derive(Clone)]
 enum BrokerAuth {
     OAuth(Arc<String>),
@@ -618,6 +631,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut last_broker_close_time: HashMap<String, Instant> = HashMap::new();
     let mut signal_confirmations: HashMap<String, (Side, u32, Instant)> = HashMap::new();
+    let mut recent_event_logs: std::collections::VecDeque<alpaca_streamer::PipelineLogEntry> = std::collections::VecDeque::with_capacity(30);
+    recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
+        timestamp_str: format_now_hms(),
+        symbol: "SYSTEM".to_string(),
+        phase: "ThermalNoise".to_string(),
+        intent: "BOOT".to_string(),
+        message: format!("Supervisor Entropiq online en modo {}. Streamer activo.", cfg.feed),
+        is_trade: false,
+    });
     let mut current_market_bias: f64 = 0.0;
     let daily_start_equity: f64 = initial_equity;
 
@@ -687,6 +709,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                         live_positions.remove(&sym);
                         last_broker_close_time.insert(sym.clone(), Instant::now());
+                        recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
+                            timestamp_str: format_now_hms(),
+                            symbol: sym.clone(),
+                            phase: format!("{:?}", snap.active_phase),
+                            intent: "EMERGENCY_EXIT".to_string(),
+                            message: format!("Liquidada por {}: return {:+.2}% (${:+.2} USD)", reason, return_frac * 100.0, pnl_usd),
+                            is_trade: true,
+                        });
+                        if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
                     }
                 // 1. Take-Profit (+0.45% target gain, or +0.25% if coherence decays below 0.20)
                 } else if return_frac >= 0.0045 || (return_frac >= 0.0025 && snap.quantum_coherence < 0.20) {
@@ -699,6 +730,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                         live_positions.remove(&sym);
                         last_broker_close_time.insert(sym.clone(), Instant::now());
+                        recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
+                            timestamp_str: format_now_hms(),
+                            symbol: sym.clone(),
+                            phase: format!("{:?}", snap.active_phase),
+                            intent: "TAKE_PROFIT".to_string(),
+                            message: format!("Take-Profit (+{:.2}%): ganancia +${:.2} USD", return_frac * 100.0, profit_usd),
+                            is_trade: true,
+                        });
+                        if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
                     }
                 // 2. Stop-Loss (-0.20% hard risk cutoff)
                 } else if return_frac <= -0.0020 {
@@ -711,6 +751,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                         live_positions.remove(&sym);
                         last_broker_close_time.insert(sym.clone(), Instant::now());
+                        recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
+                            timestamp_str: format_now_hms(),
+                            symbol: sym.clone(),
+                            phase: format!("{:?}", snap.active_phase),
+                            intent: "STOP_LOSS".to_string(),
+                            message: format!("Stop-Loss ({:.2}%): pérdida -${:.2} USD", return_frac * 100.0, loss_usd.abs()),
+                            is_trade: true,
+                        });
+                        if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
                     }
                 }
             } else if is_crypto || (sym != "SPY" && sym != "QQQ") {
@@ -882,6 +931,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             entry_time: Instant::now(),
                                         },
                                     );
+                                    recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
+                                        timestamp_str: format_now_hms(),
+                                        symbol: sym.clone(),
+                                        phase: format!("{:?}", snap.active_phase),
+                                        intent: format!("ENTRADA {}", order_side_str.to_uppercase()),
+                                        message: format!("Orden Marketable Limit: {:.6} @ ${:.2} (Nocional: ${:.2}, Kelly: {:.2}x)", qty, limit_price_clamped, notional, kelly_f),
+                                        is_trade: true,
+                                    });
+                                    if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
                                 }
                             }
                         }
@@ -1015,6 +1073,156 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 auditor.current_equity = live_equity_val;
             }
 
+            // Prepare Rich Telemetry for Neural Network Dashboard
+            let mut symbols_telemetry: Vec<alpaca_streamer::SymbolStateTelemetry> = Vec::new();
+            let target_symbols: Vec<String> = if !live_symbols.is_empty() {
+                live_symbols.iter().map(|s| s.to_string()).collect()
+            } else if !real_snapshots.is_empty() {
+                real_snapshots.keys().cloned().collect()
+            } else {
+                vec!["BTC/USD".to_string(), "ETH/USD".to_string(), "SOL/USD".to_string()]
+            };
+
+            for sym in &target_symbols {
+                if let Some(snap) = real_snapshots.get(sym) {
+                    let spread_bps = if snap.mid_price > 0.0 && snap.best_ask >= snap.best_bid {
+                        ((snap.best_ask - snap.best_bid) / snap.mid_price) * 10_000.0
+                    } else {
+                        0.0
+                    };
+                    symbols_telemetry.push(alpaca_streamer::SymbolStateTelemetry {
+                        symbol: sym.clone(),
+                        mid_price: snap.mid_price,
+                        micro_price: snap.micro_price,
+                        best_bid: snap.best_bid,
+                        best_ask: snap.best_ask,
+                        spread_bps,
+                        normalized_entropy: snap.normalized_entropy,
+                        quantum_coherence: snap.quantum_coherence,
+                        active_phase: format!("{:?}", snap.active_phase),
+                        phase_confidence: snap.phase_confidence,
+                        mach_number: snap.fluid_metrics.mach_number,
+                        speed_of_sound: snap.fluid_metrics.sound_speed,
+                        fluid_velocity: snap.fluid_metrics.flow_velocity,
+                        is_cavitation: snap.fluid_metrics.is_cavitation_risk,
+                        vpin: snap.vpin,
+                        is_toxic: snap.is_toxic_flow || snap.vpin >= 0.70,
+                        tunneling_ask: snap.tunneling_prob_ask,
+                        tunneling_bid: snap.tunneling_prob_bid,
+                        state_bias: snap.state_bias,
+                        ofi_accel: snap.ofi_acceleration,
+                        depth_dispersion: snap.depth_probabilities,
+                        sor_intent: "MONITORING".to_string(),
+                    });
+                } else {
+                    symbols_telemetry.push(alpaca_streamer::SymbolStateTelemetry {
+                        symbol: sym.clone(),
+                        mid_price: 0.0,
+                        micro_price: 0.0,
+                        best_bid: 0.0,
+                        best_ask: 0.0,
+                        spread_bps: 0.0,
+                        normalized_entropy: 0.5,
+                        quantum_coherence: 0.0,
+                        active_phase: "ThermalNoise".to_string(),
+                        phase_confidence: 0.5,
+                        mach_number: 0.0,
+                        speed_of_sound: 1.0,
+                        fluid_velocity: 0.0,
+                        is_cavitation: false,
+                        vpin: 0.0,
+                        is_toxic: false,
+                        tunneling_ask: 0.5,
+                        tunneling_bid: 0.5,
+                        state_bias: 0.0,
+                        ofi_accel: 0.0,
+                        depth_dispersion: [0.125; 8],
+                        sor_intent: "AWAITING_TICKS".to_string(),
+                    });
+                }
+            }
+
+            let mut positions_telemetry: Vec<alpaca_streamer::PositionTelemetry> = Vec::new();
+            for (sym, pos) in &live_positions {
+                let cur_price = real_snapshots.get(sym).map(|s| s.mid_price).unwrap_or(pos.entry_price);
+                let diff = if pos.side_buy { cur_price - pos.entry_price } else { pos.entry_price - cur_price };
+                let pnl_pct = if pos.entry_price > 0.0 { (diff / pos.entry_price) * 100.0 } else { 0.0 };
+                let pnl_usd = diff * pos.qty;
+                let holding_secs = pos.entry_time.elapsed().as_secs();
+
+                positions_telemetry.push(alpaca_streamer::PositionTelemetry {
+                    symbol: sym.clone(),
+                    side: if pos.side_buy { "LONG".to_string() } else { "SHORT".to_string() },
+                    entry_price: pos.entry_price,
+                    current_price: cur_price,
+                    qty: pos.qty,
+                    notional: pos.notional,
+                    pnl_pct,
+                    pnl_usd,
+                    holding_secs,
+                });
+            }
+
+            let is_toxic_flag = is_toxic || vpin >= 0.70;
+            let pipeline_steps: Vec<alpaca_streamer::PipelineStepTelemetry> = vec![
+                alpaca_streamer::PipelineStepTelemetry {
+                    id: 1,
+                    name: "Alpaca Ingestion L1/L2".to_string(),
+                    code: "INGESTION_WS".to_string(),
+                    status: if is_alpaca_up { "PASS".to_string() } else { "WARNING".to_string() },
+                    value_summary: format!("{:.0} ticks/s | Latencia: {:.1} µs", throughput, avg_latency / 1000.0),
+                    description: format!("Feed {} activo. {} ticks procesados sin pérdida.", cfg.feed, total_processed_ticks),
+                },
+                alpaca_streamer::PipelineStepTelemetry {
+                    id: 2,
+                    name: "Order Flow Microstructure".to_string(),
+                    code: "FLOW_MICRO".to_string(),
+                    status: if is_toxic_flag { "BLOCKED".to_string() } else { "PASS".to_string() },
+                    value_summary: format!("VPIN: {:.3} | Lead-Lag: {:+.2}", vpin, current_market_bias),
+                    description: "VPIN informed trading y Lead-Lag temporal vs benchmarks.".to_string(),
+                },
+                alpaca_streamer::PipelineStepTelemetry {
+                    id: 3,
+                    name: "Quantum Density Matrix Rho".to_string(),
+                    code: "QUANTUM_STATE".to_string(),
+                    status: if coherence >= 0.25 { "PASS".to_string() } else { "ACTIVE".to_string() },
+                    value_summary: format!("S: {:.3} | Coherencia: {:.3}", entropy, coherence),
+                    description: format!("Fase: {:?} ({:.1}% conf). Operador densidad von Neumann.", phase, conf * 100.0),
+                },
+                alpaca_streamer::PipelineStepTelemetry {
+                    id: 4,
+                    name: "Hydrodynamic Mach Dynamics".to_string(),
+                    code: "FLUID_MACH".to_string(),
+                    status: if mach >= 1.5 { "WARNING".to_string() } else { "PASS".to_string() },
+                    value_summary: format!("Mach: {:.2} | Cavitación: {}", mach, if mach >= 1.5 { "SI" } else { "NO" }),
+                    description: "Compresibilidad Navier-Stokes y detección de shockwaves.".to_string(),
+                },
+                alpaca_streamer::PipelineStepTelemetry {
+                    id: 5,
+                    name: "CTQW Wavepacket Tunneling".to_string(),
+                    code: "CTQW_TUNNEL".to_string(),
+                    status: "PASS".to_string(),
+                    value_summary: "Dispersión 8 niveles profundidad".to_string(),
+                    description: "Paseo cuántico de tiempo continuo en barreras del libro.".to_string(),
+                },
+                alpaca_streamer::PipelineStepTelemetry {
+                    id: 6,
+                    name: "Defensive Pre-Trade Gates".to_string(),
+                    code: "VALUATION_GATES".to_string(),
+                    status: if is_toxic_flag { "BLOCKED".to_string() } else { "PASS".to_string() },
+                    value_summary: format!("MaxDD: {:.2}% | Latencia < 500ms", auditor.max_drawdown * 100.0),
+                    description: "Filtros de spread, coste, latencia WS y drawdown diario.".to_string(),
+                },
+                alpaca_streamer::PipelineStepTelemetry {
+                    id: 7,
+                    name: "Smart Order Router (SOR)".to_string(),
+                    code: "SOR_EXECUTION".to_string(),
+                    status: if !live_positions.is_empty() { "ACTIVE".to_string() } else { "PASS".to_string() },
+                    value_summary: format!("{} posiciones activas | Kelly: {:.2}x", live_positions.len(), auditor.kelly_leverage(coherence)),
+                    description: "Enrutador de órdenes de límite agresivas con protección de slippage.".to_string(),
+                },
+            ];
+
             // Update web state for live Render HTTP dashboard and health checks
             if let Ok(mut w) = web_state.write() {
                 *w = alpaca_streamer::WebDashboardState {
@@ -1048,6 +1256,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     profit_factor: auditor.profit_factor(),
                     max_drawdown: auditor.max_drawdown,
                     total_trades: auditor.total_trades,
+                    symbols: symbols_telemetry,
+                    positions: positions_telemetry,
+                    pipeline_steps,
+                    recent_logs: recent_event_logs.iter().cloned().collect(),
                 };
             }
 

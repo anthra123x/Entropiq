@@ -8,7 +8,10 @@ pub use affinity::pin_current_thread_to_core;
 pub use client::{AlpacaAuth, AlpacaDataFeed, AlpacaStreamer};
 pub use config::EnvConfig;
 pub use model::{parse_alpaca_timestamp_ns, AlpacaQuote, AlpacaStreamMessage, AlpacaTrade};
-pub use web::{start_web_server, WebDashboardState};
+pub use web::{
+    render_dashboard_html, start_web_server, PipelineLogEntry, PipelineStepTelemetry,
+    PositionTelemetry, SymbolStateTelemetry, WebDashboardState,
+};
 
 #[cfg(test)]
 mod tests {
