@@ -122,23 +122,40 @@ async fn execute_alpaca_paper_order(
             )
         } else {
             format!(
-                r#"{{"symbol":"{}","qty":"{:.2}","side":"{}","type":"market","time_in_force":"gtc","order_class":"bracket","take_profit":{{"limit_price":"{:.2}"}},"stop_loss":{{"stop_price":"{:.2}"}}}}"#,
+                r#"{{"symbol":"{}","qty":"{:.2}","side":"{}","type":"market","time_in_force":"day","order_class":"bracket","take_profit":{{"limit_price":"{:.2}"}},"stop_loss":{{"stop_price":"{:.2}"}}}}"#,
                 symbol, qty, side, tp, sl
             )
         }
-    } else if let Some(notional) = qty_or_notional.1 {
-        // Aggressive Limit Order for Crypto: Protect against latency slippage using IOC (Immediate or Cancel)
-        if let Some(lp) = limit_price {
-            format!(
-                r#"{{"symbol":"{}","notional":"{:.2}","side":"{}","type":"limit","limit_price":"{:.2}","time_in_force":"ioc"}}"#,
-                symbol, notional, side, lp
-            )
+    } else if let Some(lp) = limit_price {
+        // Marketable Limit Order: Alpaca requires `qty` for ALL limit orders (notional is rejected on limits)
+        let qty = if let Some(q) = qty_or_notional.0 {
+            q
+        } else if let Some(notional) = qty_or_notional.1 {
+            notional / lp
         } else {
-            format!(
-                r#"{{"symbol":"{}","notional":"{:.2}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
-                symbol, notional, side
-            )
-        }
+            return false;
+        };
+        let qty_str = if is_crypto_sym {
+            let s = format!("{:.8}", qty);
+            let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+            if trimmed.is_empty() || trimmed == "0" {
+                format!("{:.8}", qty)
+            } else {
+                trimmed.to_string()
+            }
+        } else {
+            format!("{:.2}", qty)
+        };
+        let tif = if is_crypto_sym { "gtc" } else { "day" };
+        format!(
+            r#"{{"symbol":"{}","qty":"{}","side":"{}","type":"limit","limit_price":"{:.2}","time_in_force":"{}"}}"#,
+            symbol, qty_str, side, lp, tif
+        )
+    } else if let Some(notional) = qty_or_notional.1 {
+        format!(
+            r#"{{"symbol":"{}","notional":"{:.2}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
+            symbol, notional, side
+        )
     } else if let Some(qty) = qty_or_notional.0 {
         let qty_str = if is_crypto_sym {
             let s = format!("{:.8}", qty);
@@ -151,17 +168,10 @@ async fn execute_alpaca_paper_order(
         } else {
             format!("{:.2}", qty)
         };
-        if let Some(lp) = limit_price {
-            format!(
-                r#"{{"symbol":"{}","qty":"{}","side":"{}","type":"limit","limit_price":"{:.2}","time_in_force":"ioc"}}"#,
-                symbol, qty_str, side, lp
-            )
-        } else {
-            format!(
-                r#"{{"symbol":"{}","qty":"{}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
-                symbol, qty_str, side
-            )
-        }
+        format!(
+            r#"{{"symbol":"{}","qty":"{}","side":"{}","type":"market","time_in_force":"gtc"}}"#,
+            symbol, qty_str, side
+        )
     } else {
         return false;
     };
@@ -185,21 +195,50 @@ async fn execute_alpaca_paper_order(
 
     match req.send().await {
         Ok(resp) => {
+            let status_code = resp.status();
             if let Ok(text) = resp.text().await {
-                if text.contains(r#""id""#) {
-                    println!(
-                        " \x1b[1;35m[ALPACA BROKER ORDER]\x1b[0m Transaccion ejecutada en Broker: {} {}",
-                        side.to_uppercase(),
-                        symbol
-                    );
-                    true
-                } else {
-                    eprintln!(
-                        " \x1b[1;31m[ALPACA BROKER RECHAZO]\x1b[0m Respuesta de Broker: {}",
-                        text.trim()
-                    );
-                    false
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if let Some(status) = val.get("status").and_then(|v| v.as_str()) {
+                        let st_upper = status.to_uppercase();
+                        if status == "canceled" || status == "rejected" || status == "expired" {
+                            eprintln!(
+                                " \x1b[1;31m[ALPACA BROKER RECHAZO ({})]\x1b[0m Orden descartada por el broker: {}",
+                                st_upper,
+                                text.trim()
+                            );
+                            return false;
+                        }
+                        if status == "filled"
+                            || status == "new"
+                            || status == "accepted"
+                            || status == "pending_new"
+                            || status == "partially_filled"
+                        {
+                            println!(
+                                " \x1b[1;35m[ALPACA BROKER ORDER ({})]\x1b[0m Transaccion confirmada en Broker: {} {} (ID: {})",
+                                st_upper,
+                                side.to_uppercase(),
+                                symbol,
+                                val.get("id").and_then(|v| v.as_str()).unwrap_or("N/A")
+                            );
+                            return true;
+                        }
+                    }
+                    if val.get("id").is_some() && status_code.is_success() {
+                        println!(
+                            " \x1b[1;35m[ALPACA BROKER ORDER]\x1b[0m Transaccion ejecutada en Broker: {} {}",
+                            side.to_uppercase(),
+                            symbol
+                        );
+                        return true;
+                    }
                 }
+                eprintln!(
+                    " \x1b[1;31m[ALPACA BROKER RECHAZO ({})]\x1b[0m Respuesta de Broker: {}",
+                    status_code,
+                    text.trim()
+                );
+                false
             } else {
                 false
             }
@@ -584,6 +623,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start_time = Instant::now();
     let mut last_report_time = Instant::now();
+    let mut last_reconcile_time = Instant::now();
     let mut last_report_ticks: u64 = 0;
     let mut interval = tokio::time::interval(Duration::from_millis(1));
 
@@ -595,7 +635,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("[+] Especializacion de Mercado: WALL STREET EQUITIES IEX (SPY, QQQ, NVDA, AAPL, TSLA...)");
         println!("[+] Lead-Lag Cuantico: SPY/QQQ Macro Index Bias -> Arbitraje Estadistico en Acciones");
     }
-    println!("[+] Pipeline Pre-Trade: Spread < 15bps | Retorno > Costes | Delay WS < 50ms | Drawdown Diario < 2%");
+    println!("[+] Pipeline Pre-Trade: Spread < 15bps | Retorno > Costes | Delay WS configurable | Drawdown Diario < 2%");
     println!("[+] Risk Engine: Kelly Dinamico segun Stop-Loss (-0.20%) | TP=+0.45% (decay +0.25%) | Techo 1.5% Equity");
     println!("------------------------------------------------------------------------------------------\n");
 
@@ -710,17 +750,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let net_expected_return = expected_tp - roundtrip_friction;
                             let pass_cost = net_expected_return >= 0.0010;
 
-                            // Filter 3: WebSocket data age / latency check (< 50 ms)
+                            // Filter 3: WebSocket data age / latency check (< 500 ms configurable via MAX_LATENCY_MS)
                             let now_ns = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .unwrap_or_default()
                                 .as_nanos() as u64;
-                            let pass_latency = if snap.timestamp_ns > 0 {
+                            let max_latency_ms: f64 = std::env::var("MAX_LATENCY_MS")
+                                .ok()
+                                .and_then(|s| s.parse().ok())
+                                .unwrap_or(500.0);
+                            let pass_latency = if max_latency_ms > 0.0 && snap.timestamp_ns > 0 {
                                 let delay_ms = (now_ns.saturating_sub(snap.timestamp_ns)) as f64 / 1_000_000.0;
-                                delay_ms <= 50.0
+                                delay_ms <= max_latency_ms
                             } else {
                                 true
                             };
+
+                            if !pass_spread {
+                                println!(
+                                    " \x1b[1;33m[PRE-TRADE SPREAD]\x1b[0m Spread excesivo en {} ({:.1} bps > max {:.1} bps)",
+                                    sym, spread_bps, max_spread_bps
+                                );
+                            }
+                            if !pass_cost {
+                                println!(
+                                    " \x1b[1;33m[PRE-TRADE COSTE]\x1b[0m Margen de retorno insuficiente en {} ({:.1} bps < 10.0 bps margen tras costes)",
+                                    sym, net_expected_return * 10_000.0
+                                );
+                            }
+                            if !pass_latency {
+                                let delay_ms = (now_ns.saturating_sub(snap.timestamp_ns)) as f64 / 1_000_000.0;
+                                println!(
+                                    " \x1b[1;33m[PRE-TRADE LATENCIA]\x1b[0m Retraso WS en {} ({:.1} ms > max {:.1} ms)",
+                                    sym, delay_ms, max_latency_ms
+                                );
+                            }
 
                             // Anti-whipsaw confirmation window: require 2 consecutive signals or strong conviction
                             let conf_entry = signal_confirmations.entry(sym.clone()).or_insert((side, 0, Instant::now()));
@@ -773,12 +837,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     q.max(0.01)
                                 };
 
-                                // Slippage Cap: 8 bps on crypto, 4 bps on equities to prevent latency penalty
-                                let slippage_cap = if is_crypto_sym { 0.0008 } else { 0.0004 };
+                                // Aggressive Marketable Limit Order: Cross spread with slippage cap (15 bps crypto, 8 bps equities)
+                                let slippage_bps = if is_crypto_sym { 0.0015 } else { 0.0008 };
                                 let limit_price = if side_buy {
-                                    snap.mid_price * (1.0 + slippage_cap)
+                                    best_ask * (1.0 + slippage_bps)
                                 } else {
-                                    snap.mid_price * (1.0 - slippage_cap)
+                                    best_bid * (1.0 - slippage_bps)
                                 };
                                 let limit_price_clamped = (limit_price * 100.0).round() / 100.0;
 
@@ -791,11 +855,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     None
                                 };
 
-                                let order_arg = if is_crypto_sym {
-                                    (None, Some(notional))
-                                } else {
-                                    (Some(qty), None)
-                                };
+                                // Limit orders on Alpaca require `qty`
+                                let order_arg = (Some(qty), None);
 
                                 if execute_alpaca_paper_order(
                                     &http_client,
@@ -992,6 +1053,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             last_report_time = now;
             last_report_ticks = total_processed_ticks;
+        }
+
+        // Periodic position reconciliation with broker (every 30s)
+        if last_reconcile_time.elapsed() >= Duration::from_secs(30) && !matches!(broker_auth, BrokerAuth::None) {
+            last_reconcile_time = Instant::now();
+            let current_broker_positions = fetch_alpaca_positions(&http_client, &broker_auth).await;
+            live_positions.retain(|sym, _| {
+                let exists = current_broker_positions.contains_key(sym);
+                if !exists {
+                    println!(
+                        " \x1b[1;33m[ALPACA RECONCILIACION]\x1b[0m Posicion {} no encontrada en broker. Sincronizando estado local a cero.",
+                        sym
+                    );
+                }
+                exists
+            });
+            for (sym, pos) in current_broker_positions {
+                live_positions.entry(sym).or_insert(pos);
+            }
         }
 
         interval.tick().await;
