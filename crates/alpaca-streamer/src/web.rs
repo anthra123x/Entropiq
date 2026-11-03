@@ -203,7 +203,7 @@ pub async fn start_web_server(state: Arc<RwLock<WebDashboardState>>, port: u16) 
 }
 
 /// Generates the human-crafted, institutional-grade Quantum Microstructure Dashboard.
-/// Uses native CSS Flexbox/Grid for zero text-overlap, an SVG synapse backdrop, and strict 100vh fit.
+/// Uses native CSS Flexbox/Grid for zero text-overlap, an HTML5 Canvas for dynamic synaptic connections, and strict 100vh fit.
 pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     let initial_json = serde_json::to_string(initial_state).unwrap_or_else(|_| "{}".to_string());
 
@@ -219,7 +219,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
   <style>
     :root {{
       --bg: #07090e;
-      --card-bg: rgba(13, 19, 32, 0.85);
+      --card-bg: rgba(13, 19, 32, 0.88);
       --card-border: rgba(255, 255, 255, 0.08);
       --cyan: #38bdf8;
       --cyan-glow: rgba(56, 189, 248, 0.25);
@@ -248,8 +248,8 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       overflow: hidden;
       background: var(--bg);
       background-image:
-        radial-gradient(circle at 12% 18%, rgba(99, 102, 241, 0.08) 0%, transparent 45%),
-        radial-gradient(circle at 88% 82%, rgba(56, 189, 248, 0.06) 0%, transparent 40%);
+        radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.07) 0%, transparent 45%),
+        radial-gradient(circle at 90% 80%, rgba(56, 189, 248, 0.05) 0%, transparent 40%);
       color: var(--text);
       font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }}
@@ -268,8 +268,8 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
 
     /* Top Navigation Bar */
     .top-bar {{
-      height: 42px;
-      min-height: 42px;
+      height: 44px;
+      min-height: 44px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -278,6 +278,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       backdrop-filter: blur(20px);
       border: 1px solid var(--card-border);
       border-radius: 12px;
+      flex-shrink: 0;
     }}
 
     .brand-wrap {{
@@ -366,11 +367,11 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       flex: 1;
       min-height: 0;
       display: grid;
-      grid-template-columns: 1fr 370px;
+      grid-template-columns: 1fr 375px;
       gap: 10px;
     }}
 
-    /* Left Stage: Neural Graph with Real HTML Nodes + SVG Synapse Backdrop */
+    /* Left Stage: Neural Flow Canvas */
     .neural-stage {{
       background: var(--card-bg);
       backdrop-filter: blur(20px);
@@ -391,6 +392,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       justify-content: space-between;
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       background: rgba(0, 0, 0, 0.2);
+      flex-shrink: 0;
     }}
     .hud-title {{
       font-size: 11px;
@@ -411,79 +413,58 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     }}
     .hud-metrics span b {{ color: #fff; }}
 
-    /* Synaptic Canvas Container */
-    .neural-viewport {{
+    /* Flow Layout Container */
+    .flow-container {{
+      position: relative;
       flex: 1;
       min-height: 0;
       width: 100%;
-      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 32px;
+      gap: 24px;
       overflow: hidden;
     }}
 
-    /* SVG Synaptic Backdrop Layer */
-    svg.synapse-backdrop {{
-      width: 100%;
-      height: 100%;
+    /* Dynamic Canvas Layer */
+    canvas#synapse-canvas {{
       position: absolute;
       top: 0;
       left: 0;
+      width: 100%;
+      height: 100%;
       pointer-events: none;
       z-index: 1;
     }}
-    .syn-path {{
-      fill: none;
-      stroke: rgba(255, 255, 255, 0.08);
-      stroke-width: 1.5;
-    }}
-    .syn-pulse {{
-      fill: none;
-      stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-dasharray: 8 160;
-      animation: synPulseMove 3s linear infinite;
-    }}
-    .syn-pulse.cyan {{ stroke: var(--cyan); }}
-    .syn-pulse.purple {{ stroke: var(--purple); animation-duration: 3.4s; }}
-    .syn-pulse.emerald {{ stroke: var(--emerald); animation-duration: 2.6s; }}
 
-    @keyframes synPulseMove {{
-      from {{ stroke-dashoffset: 168; }}
-      to {{ stroke-dashoffset: 0; }}
-    }}
-
-    /* HTML Nodes Layer (Zero Text Overlap, Flexbox Auto-Layout) */
-    .nodes-layer {{
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+    /* Column 1: Root Core */
+    .root-column {{
+      flex-shrink: 0;
+      width: 110px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
       z-index: 2;
-      pointer-events: auto;
     }}
-
-    /* Root Core Node */
-    .node-root {{
-      position: absolute;
-      left: 35px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 88px;
-      height: 88px;
+    .core-node {{
+      position: relative;
+      width: 90px;
+      height: 90px;
       border-radius: 50%;
-      background: radial-gradient(circle at 35% 35%, #0e1e38 0%, #080c16 80%);
-      border: 1px solid rgba(56, 189, 248, 0.4);
+      background: radial-gradient(circle at 35% 35%, #0f1d38 0%, #070a12 85%);
+      border: 1px solid rgba(56, 189, 248, 0.45);
       box-shadow: 0 0 24px rgba(56, 189, 248, 0.15), inset 0 0 16px rgba(56, 189, 248, 0.1);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 3px;
+      gap: 2px;
       user-select: none;
     }}
-    .root-tag {{ font-size: 8px; font-weight: 800; letter-spacing: 0.15em; color: var(--cyan); text-transform: uppercase; }}
-    .root-name {{ font-size: 10px; font-weight: 800; color: #fff; }}
-    .root-phase-badge {{
+    .core-tag {{ font-size: 8px; font-weight: 800; letter-spacing: 0.15em; color: var(--cyan); text-transform: uppercase; }}
+    .core-title {{ font-size: 9.5px; font-weight: 800; color: #fff; }}
+    .core-phase-pill {{
       font-size: 7.5px;
       font-weight: 800;
       padding: 1px 6px;
@@ -492,64 +473,69 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       color: var(--amber);
       border: 1px solid rgba(245, 158, 11, 0.3);
       text-transform: uppercase;
-      max-width: 76px;
+      max-width: 78px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      margin-top: 2px;
     }}
 
-    /* Intermediate Tier 2 Pillars */
-    .node-pillar {{
-      position: absolute;
-      left: 200px;
-      width: 220px;
-      height: 54px;
+    /* Column 2: The 3 Processing Pillars */
+    .pillars-column {{
+      flex-shrink: 0;
+      width: 250px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-around;
+      height: 100%;
+      gap: 16px;
+      z-index: 2;
+    }}
+    .pillar-card {{
       background: rgba(14, 21, 37, 0.92);
       border: 1px solid var(--card-border);
       border-left: 3px solid var(--cyan);
       border-radius: 10px;
-      padding: 8px 12px;
+      padding: 10px 14px;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
+      gap: 4px;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
       transition: all 0.2s ease;
     }}
-    .node-pillar:hover {{
+    .pillar-card:hover {{
       border-color: rgba(255, 255, 255, 0.18);
       transform: translateX(2px);
     }}
-    .node-pillar.p-purple {{ border-left-color: var(--purple); }}
-    .node-pillar.p-emerald {{ border-left-color: var(--emerald); }}
+    .pillar-card.p-purple {{ border-left-color: var(--purple); }}
+    .pillar-card.p-emerald {{ border-left-color: var(--emerald); }}
 
-    .pillar-header {{
+    .pillar-top {{
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 6px;
+      gap: 8px;
     }}
     .pillar-title {{
       font-size: 11px;
       font-weight: 700;
       color: #fff;
-      display: flex;
-      align-items: center;
-      gap: 6px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }}
-    .pillar-status {{
+    .badge-pill {{
       font-size: 8.5px;
       font-weight: 800;
-      padding: 2px 6px;
+      padding: 2px 7px;
       border-radius: 4px;
       text-transform: uppercase;
       flex-shrink: 0;
     }}
-    .pillar-status.cyan {{ background: rgba(56, 189, 248, 0.12); color: var(--cyan); border: 1px solid rgba(56, 189, 248, 0.3); }}
-    .pillar-status.purple {{ background: rgba(129, 140, 248, 0.12); color: var(--purple); border: 1px solid rgba(129, 140, 248, 0.3); }}
-    .pillar-status.emerald {{ background: rgba(16, 185, 129, 0.12); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }}
+    .badge-pill.cyan {{ background: rgba(56, 189, 248, 0.12); color: var(--cyan); border: 1px solid rgba(56, 189, 248, 0.3); }}
+    .badge-pill.purple {{ background: rgba(129, 140, 248, 0.12); color: var(--purple); border: 1px solid rgba(129, 140, 248, 0.3); }}
+    .badge-pill.emerald {{ background: rgba(16, 185, 129, 0.12); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }}
+    .badge-pill.amber {{ background: rgba(245, 158, 11, 0.12); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }}
 
     .pillar-sub {{
       font-size: 9.5px;
@@ -559,16 +545,22 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       text-overflow: ellipsis;
     }}
 
-    /* Operational Tier 3 Leafs */
-    .node-leaf {{
-      position: absolute;
-      left: 490px;
-      width: 360px;
-      height: 34px;
-      background: rgba(11, 17, 30, 0.90);
+    /* Column 3: The 7 Operational Leafs */
+    .leafs-column {{
+      flex: 1;
+      max-width: 440px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-around;
+      height: 100%;
+      gap: 7px;
+      z-index: 2;
+    }}
+    .leaf-card {{
+      background: rgba(11, 17, 30, 0.92);
       border: 1px solid rgba(255, 255, 255, 0.07);
       border-radius: 8px;
-      padding: 0 12px;
+      padding: 6px 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -576,11 +568,11 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
       transition: all 0.2s ease;
     }}
-    .node-leaf:hover {{
+    .leaf-card:hover {{
       border-color: rgba(255, 255, 255, 0.16);
-      background: rgba(14, 22, 38, 0.95);
+      background: rgba(14, 22, 38, 0.98);
     }}
-    .leaf-left {{
+    .leaf-main {{
       display: flex;
       align-items: center;
       gap: 8px;
@@ -598,7 +590,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     .leaf-dot.purple {{ background: var(--purple); }}
     .leaf-dot.amber {{ background: var(--amber); }}
 
-    .leaf-name {{
+    .leaf-title {{
       font-size: 11px;
       font-weight: 600;
       color: #e2e8f0;
@@ -606,7 +598,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       overflow: hidden;
       text-overflow: ellipsis;
     }}
-    .leaf-right {{
+    .leaf-metrics {{
       display: flex;
       align-items: center;
       gap: 8px;
@@ -617,20 +609,20 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       font-weight: 600;
       color: #fff;
     }}
-    .leaf-badge {{
+    .badge-tag {{
       font-size: 8.5px;
       font-weight: 800;
-      padding: 1px 6px;
-      border-radius: 3px;
+      padding: 2px 6px;
+      border-radius: 4px;
       text-transform: uppercase;
       background: rgba(16, 185, 129, 0.15);
       color: var(--emerald);
       border: 1px solid rgba(16, 185, 129, 0.3);
     }}
-    .leaf-badge.warn {{ background: rgba(245, 158, 11, 0.15); color: var(--amber); border-color: rgba(245, 158, 11, 0.3); }}
-    .leaf-badge.purple {{ background: rgba(129, 140, 248, 0.15); color: var(--purple); border-color: rgba(129, 140, 248, 0.3); }}
+    .badge-tag.warn {{ background: rgba(245, 158, 11, 0.15); color: var(--amber); border-color: rgba(245, 158, 11, 0.3); }}
+    .badge-tag.purple {{ background: rgba(129, 140, 248, 0.15); color: var(--purple); border-color: rgba(129, 140, 248, 0.3); }}
 
-    /* CTQW Dispersion Strip at Bottom of Stage */
+    /* CTQW Dispersion Strip */
     .dispersion-strip {{
       height: 44px;
       min-height: 44px;
@@ -641,6 +633,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       align-items: center;
       justify-content: space-between;
       gap: 16px;
+      flex-shrink: 0;
     }}
     .disp-info {{ display: flex; flex-direction: column; gap: 1px; }}
     .disp-title {{ font-size: 10px; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }}
@@ -841,7 +834,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
   <!-- Main 100vh Layout Grid -->
   <main class="dashboard-grid">
 
-    <!-- Left Stage: Interactive Neural Network Graph -->
+    <!-- Left Stage: Dynamic Neural Network Graph -->
     <section class="neural-stage">
       <div class="canvas-hud">
         <div class="hud-title">
@@ -858,164 +851,133 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
         </div>
       </div>
 
-      <div class="neural-viewport">
-        <!-- SVG Synapse Backdrop: Precise Bézier Connections -->
-        <svg class="synapse-backdrop" viewBox="0 0 880 440" preserveAspectRatio="none">
-          <!-- Tier 1 to Tier 2 Curves -->
-          <path d="M 123 220 C 165 220, 165 87, 200 87" class="syn-path" />
-          <path d="M 123 220 C 165 220, 165 87, 200 87" class="syn-pulse cyan" />
+      <!-- Flow Container with Canvas Connections -->
+      <div class="flow-container">
+        <!-- High-Performance Synapse Canvas (Calculates Exact Pixel Connections) -->
+        <canvas id="synapse-canvas"></canvas>
 
-          <path d="M 123 220 C 165 220, 165 220, 200 220" class="syn-path" />
-          <path d="M 123 220 C 165 220, 165 220, 200 220" class="syn-pulse purple" />
-
-          <path d="M 123 220 C 165 220, 165 353, 200 353" class="syn-path" />
-          <path d="M 123 220 C 165 220, 165 353, 200 353" class="syn-pulse emerald" />
-
-          <!-- Tier 2 to Tier 3 Curves -->
-          <!-- From Pillar 1 (y: 87) -->
-          <path d="M 420 87 C 455 87, 455 59, 490 59" class="syn-path" />
-          <path d="M 420 87 C 455 87, 455 59, 490 59" class="syn-pulse cyan" />
-
-          <path d="M 420 87 C 455 87, 455 103, 490 103" class="syn-path" />
-          <path d="M 420 87 C 455 87, 455 103, 490 103" class="syn-pulse cyan" />
-
-          <!-- From Pillar 2 (y: 220) -->
-          <path d="M 420 220 C 455 220, 455 189, 490 189" class="syn-path" />
-          <path d="M 420 220 C 455 220, 455 189, 490 189" class="syn-pulse purple" />
-
-          <path d="M 420 220 C 455 220, 455 233, 490 233" class="syn-path" />
-          <path d="M 420 220 C 455 220, 455 233, 490 233" class="syn-pulse purple" />
-
-          <!-- From Pillar 3 (y: 353) -->
-          <path d="M 420 353 C 455 353, 455 319, 490 319" class="syn-path" />
-          <path d="M 420 353 C 455 353, 455 319, 490 319" class="syn-pulse emerald" />
-
-          <path d="M 420 353 C 455 353, 455 363, 490 363" class="syn-path" />
-          <path d="M 420 353 C 455 353, 455 363, 490 363" class="syn-pulse emerald" />
-
-          <path d="M 420 353 C 455 353, 455 407, 490 407" class="syn-path" />
-          <path d="M 420 353 C 455 353, 455 407, 490 407" class="syn-pulse emerald" />
-        </svg>
-
-        <!-- HTML Nodes Layer: Guarantees zero text-overlaps via CSS Flexbox -->
-        <div class="nodes-layer">
-          <!-- Tier 1: Root Core Sphere -->
-          <div class="node-root">
-            <span class="root-tag">QUANTUM</span>
-            <span class="root-name">CORE RK4</span>
-            <span class="root-phase-badge mono" id="svg-core-phase">THERMAL</span>
+        <!-- Column 1: Root Core -->
+        <div class="root-column">
+          <div class="core-node" id="node-root">
+            <span class="core-tag">ENTROPIQ</span>
+            <span class="core-title">CORE RK4</span>
+            <span class="core-phase-pill mono" id="core-phase-pill">THERMAL</span>
           </div>
+        </div>
 
-          <!-- Tier 2: Intermediate Processing Pillars -->
+        <!-- Column 2: 3 Processing Pillars -->
+        <div class="pillars-column">
           <!-- Pillar 1: Ingestión & Spread -->
-          <div class="node-pillar" style="top: 60px;">
-            <div class="pillar-header">
+          <div class="pillar-card" id="node-p1">
+            <div class="pillar-top">
               <span class="pillar-title">01 · INGESTIÓN & SPREAD</span>
-              <span class="pillar-status cyan mono" id="hub-1-status">LAMINAR</span>
+              <span class="badge-pill cyan mono" id="p1-status">LAMINAR</span>
             </div>
-            <span class="pillar-sub mono" id="hub-1-desc">Spread: 2.5 bps &bull; Profundidad: OK</span>
+            <div class="pillar-sub mono" id="p1-desc">Spread: 2.5 bps · OFI: 0.0</div>
           </div>
 
           <!-- Pillar 2: Física Cuántica & Mach -->
-          <div class="node-pillar p-purple" style="top: 193px;">
-            <div class="pillar-header">
+          <div class="pillar-card p-purple" id="node-p2">
+            <div class="pillar-top">
               <span class="pillar-title">02 · FÍSICA & MATRIZ ρ</span>
-              <span class="pillar-status purple mono" id="hub-2-status">COHERENTE</span>
+              <span class="badge-pill purple mono" id="p2-status">COHERENTE</span>
             </div>
-            <span class="pillar-sub mono" id="hub-2-desc">S(norm): 0.81 &bull; Coher: 0.25</span>
+            <div class="pillar-sub mono" id="p2-desc">S(norm): 0.810 · Coher: 0.248</div>
           </div>
 
           <!-- Pillar 3: Valuación Pre-Trade & SOR -->
-          <div class="node-pillar p-emerald" style="top: 326px;">
-            <div class="pillar-header">
+          <div class="pillar-card p-emerald" id="node-p3">
+            <div class="pillar-top">
               <span class="pillar-title">03 · VALUACIÓN & SOR</span>
-              <span class="pillar-status emerald mono" id="hub-3-status">PERMISIVO</span>
+              <span class="badge-pill emerald mono" id="p3-status">PERMISIVO</span>
             </div>
-            <span class="pillar-sub mono" id="hub-3-desc">6 Puertas Pre-Trade &bull; Half-Kelly 1.0x</span>
+            <div class="pillar-sub mono" id="p3-desc">6 Puertas · Half-Kelly 0.20x</div>
           </div>
+        </div>
 
-          <!-- Tier 3: Operational Leafs (Fan-Out) -->
+        <!-- Column 3: 7 Operational Leafs -->
+        <div class="leafs-column">
           <!-- Leaf 1: Spread Bid-Ask -->
-          <div class="node-leaf" style="top: 42px;">
-            <div class="leaf-left">
+          <div class="leaf-card" id="node-l1">
+            <div class="leaf-main">
               <span class="leaf-dot cyan"></span>
-              <span class="leaf-name">Spread Bid-Ask Dinámico</span>
+              <span class="leaf-title">Spread Bid-Ask Dinámico</span>
             </div>
-            <div class="leaf-right">
-              <span class="leaf-val mono" id="leaf-1-val">2.5 bps</span>
-              <span class="leaf-badge mono" id="leaf-1-badge">OK</span>
+            <div class="leaf-metrics">
+              <span class="leaf-val mono" id="l1-val">2.5 bps</span>
+              <span class="badge-tag mono" id="l1-tag">PASS</span>
             </div>
           </div>
 
           <!-- Leaf 2: Order Flow Imbalance (OFI) -->
-          <div class="node-leaf" style="top: 86px;">
-            <div class="leaf-left">
+          <div class="leaf-card" id="node-l2">
+            <div class="leaf-main">
               <span class="leaf-dot cyan"></span>
-              <span class="leaf-name">Order Flow Imbalance (OFI)</span>
+              <span class="leaf-title">Order Flow Imbalance (OFI)</span>
             </div>
-            <div class="leaf-right">
-              <span class="leaf-val mono" id="leaf-2-val">Accel: 0.0</span>
-              <span class="leaf-badge mono">ESTABLE</span>
+            <div class="leaf-metrics">
+              <span class="leaf-val mono" id="l2-val">Accel: 0.0</span>
+              <span class="badge-tag mono">ESTABLE</span>
             </div>
           </div>
 
           <!-- Leaf 3: Matriz Densidad von Neumann -->
-          <div class="node-leaf" style="top: 172px;">
-            <div class="leaf-left">
+          <div class="leaf-card" id="node-l3">
+            <div class="leaf-main">
               <span class="leaf-dot purple"></span>
-              <span class="leaf-name">Operador Densidad von Neumann (ρ)</span>
+              <span class="leaf-title">Densidad von Neumann (ρ)</span>
             </div>
-            <div class="leaf-right">
-              <span class="leaf-val mono" id="leaf-3-val">S: 0.81 | C: 0.25</span>
-              <span class="leaf-badge purple mono">COHER</span>
+            <div class="leaf-metrics">
+              <span class="leaf-val mono" id="l3-val">S: 0.81 | C: 0.25</span>
+              <span class="badge-tag purple mono">COHER</span>
             </div>
           </div>
 
           <!-- Leaf 4: Hidrodinámica & Mach -->
-          <div class="node-leaf" style="top: 216px;">
-            <div class="leaf-left">
+          <div class="leaf-card" id="node-l4">
+            <div class="leaf-main">
               <span class="leaf-dot cyan"></span>
-              <span class="leaf-name">Hidrodinámica & Mach Shockwave</span>
+              <span class="leaf-title">Hidrodinámica & Mach Shock</span>
             </div>
-            <div class="leaf-right">
-              <span class="leaf-val mono" id="leaf-4-val">Mach 0.00 (Sub)</span>
-              <span class="leaf-badge mono">SUB</span>
+            <div class="leaf-metrics">
+              <span class="leaf-val mono" id="l4-val">0.00 M</span>
+              <span class="badge-tag mono">SUB</span>
             </div>
           </div>
 
           <!-- Leaf 5: Escudo Tóxico VPIN -->
-          <div class="node-leaf" style="top: 302px;">
-            <div class="leaf-left">
+          <div class="leaf-card" id="node-l5">
+            <div class="leaf-main">
               <span class="leaf-dot"></span>
-              <span class="leaf-name">Escudo Toxicidad Flujo (VPIN)</span>
+              <span class="leaf-title">Escudo Toxicidad Flujo (VPIN)</span>
             </div>
-            <div class="leaf-right">
-              <span class="leaf-val mono" id="leaf-5-val">VPIN: 0.000</span>
-              <span class="leaf-badge mono" id="leaf-5-badge">PERMISIVO</span>
+            <div class="leaf-metrics">
+              <span class="leaf-val mono" id="l5-val">VPIN: 0.000</span>
+              <span class="badge-tag mono" id="l5-tag">PASS</span>
             </div>
           </div>
 
           <!-- Leaf 6: Margen Retorno vs Fricción -->
-          <div class="node-leaf" style="top: 346px;">
-            <div class="leaf-left">
+          <div class="leaf-card" id="node-l6">
+            <div class="leaf-main">
               <span class="leaf-dot amber"></span>
-              <span class="leaf-name">Margen Retorno vs Fricción Fee</span>
+              <span class="leaf-title">Margen Retorno vs Fricción</span>
             </div>
-            <div class="leaf-right">
-              <span class="leaf-val mono" id="leaf-6-val">TP 45bps &gt; Fee</span>
-              <span class="leaf-badge mono" id="leaf-6-badge">PASS</span>
+            <div class="leaf-metrics">
+              <span class="leaf-val mono" id="l6-val">TP > Costes</span>
+              <span class="badge-tag mono" id="l6-tag">PASS</span>
             </div>
           </div>
 
           <!-- Leaf 7: SOR Router & Alpaca Limit -->
-          <div class="node-leaf" style="top: 390px;">
-            <div class="leaf-left">
+          <div class="leaf-card" id="node-l7">
+            <div class="leaf-main">
               <span class="leaf-dot purple"></span>
-              <span class="leaf-name">Enrutador SOR & Límite Alpaca REST</span>
+              <span class="leaf-title">Enrutador SOR Alpaca REST</span>
             </div>
-            <div class="leaf-right">
-              <span class="leaf-val mono" id="leaf-7-val">Hold &bull; Kelly: 0.2x</span>
-              <span class="leaf-badge purple mono">LISTO</span>
+            <div class="leaf-metrics">
+              <span class="leaf-val mono" id="l7-val">Marketable Limit</span>
+              <span class="badge-tag purple mono">LISTO</span>
             </div>
           </div>
         </div>
@@ -1161,6 +1123,101 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
   <script>
     let selectedSymbolIndex = 0;
     let cachedState = {initial_json};
+    let photonAnim = 0;
+
+    // Canvas Synapse Connection Drawer
+    const canvas = document.getElementById("synapse-canvas");
+    const ctx = canvas.getContext("2d");
+
+    function drawConnections() {{
+      const container = canvas.parentElement;
+      if (!container) return;
+      const cRect = container.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+
+      if (canvas.width !== Math.round(cRect.width * dpr) || canvas.height !== Math.round(cRect.height * dpr)) {{
+        canvas.width = Math.round(cRect.width * dpr);
+        canvas.height = Math.round(cRect.height * dpr);
+      }}
+
+      ctx.resetTransform();
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, cRect.width, cRect.height);
+
+      function getAnchor(elId, isRight) {{
+        const el = document.getElementById(elId);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {{
+          x: (isRight ? r.right : r.left) - cRect.left,
+          y: r.top + r.height / 2 - cRect.top
+        }};
+      }}
+
+      const links = [
+        // Root -> Pillars
+        {{ from: "node-root", to: "node-p1", stroke: "rgba(56, 189, 248, 0.4)", pulse: "#38bdf8", speed: 0.007 }},
+        {{ from: "node-root", to: "node-p2", stroke: "rgba(129, 140, 248, 0.4)", pulse: "#818cf8", speed: 0.006 }},
+        {{ from: "node-root", to: "node-p3", stroke: "rgba(16, 185, 129, 0.4)", pulse: "#10b981", speed: 0.008 }},
+
+        // Pillar 1 -> Leafs 1, 2
+        {{ from: "node-p1", to: "node-l1", stroke: "rgba(56, 189, 248, 0.3)", pulse: "#38bdf8", speed: 0.009 }},
+        {{ from: "node-p1", to: "node-l2", stroke: "rgba(56, 189, 248, 0.3)", pulse: "#38bdf8", speed: 0.0075 }},
+
+        // Pillar 2 -> Leafs 3, 4
+        {{ from: "node-p2", to: "node-l3", stroke: "rgba(129, 140, 248, 0.3)", pulse: "#818cf8", speed: 0.0065 }},
+        {{ from: "node-p2", to: "node-l4", stroke: "rgba(129, 140, 248, 0.3)", pulse: "#818cf8", speed: 0.0085 }},
+
+        // Pillar 3 -> Leafs 5, 6, 7
+        {{ from: "node-p3", to: "node-l5", stroke: "rgba(16, 185, 129, 0.3)", pulse: "#10b981", speed: 0.008 }},
+        {{ from: "node-p3", to: "node-l6", stroke: "rgba(16, 185, 129, 0.3)", pulse: "#10b981", speed: 0.007 }},
+        {{ from: "node-p3", to: "node-l7", stroke: "rgba(129, 140, 248, 0.3)", pulse: "#818cf8", speed: 0.009 }},
+      ];
+
+      photonAnim += 0.006;
+
+      for (let i = 0; i < links.length; i++) {{
+        const l = links[i];
+        const p1 = getAnchor(l.from, true);
+        const p2 = getAnchor(l.to, false);
+        if (!p1 || !p2) continue;
+
+        const dx = Math.max(25, (p2.x - p1.x) * 0.5);
+        const cp1x = p1.x + dx;
+        const cp1y = p1.y;
+        const cp2x = p2.x - dx;
+        const cp2y = p2.y;
+
+        // Draw smooth connecting bezier curve
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+        ctx.strokeStyle = l.stroke;
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+
+        // Calculate animated photon position B(t)
+        const t = (photonAnim * (l.speed * 120) + (i * 0.16)) % 1.0;
+        const u = 1 - t;
+        const px = u*u*u*p1.x + 3*u*u*t*cp1x + 3*u*t*t*cp2x + t*t*t*p2.x;
+        const py = u*u*u*p1.y + 3*u*u*t*cp1y + 3*u*t*t*cp2y + t*t*t*p2.y;
+
+        // Draw photon
+        ctx.beginPath();
+        ctx.arc(px, py, 3.2, 0, Math.PI * 2);
+        ctx.fillStyle = l.pulse;
+        ctx.shadowColor = l.pulse;
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }}
+
+      requestAnimationFrame(drawConnections);
+    }}
+
+    window.addEventListener("resize", () => {{
+      drawConnections();
+    }});
 
     function selectSymbol(idx) {{
       selectedSymbolIndex = idx;
@@ -1191,7 +1248,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       // Phase Badge
       const phaseBadge = document.getElementById("card-phase-badge");
       phaseBadge.innerText = `${{sym.active_phase}} (${{(sym.phase_confidence * 100).toFixed(0)}}%)`;
-      document.getElementById("svg-core-phase").innerText = sym.active_phase.toUpperCase();
+      document.getElementById("core-phase-pill").innerText = sym.active_phase.toUpperCase();
 
       // Physics Quad
       document.getElementById("quad-entropy").innerText = sym.normalized_entropy.toFixed(3);
@@ -1200,37 +1257,37 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       document.getElementById("quad-vpin").innerText = sym.vpin.toFixed(3);
 
       // Update Intermediate Pillars (Tier 2)
-      document.getElementById("hub-1-desc").innerText = `Spread: ${{sym.spread_bps.toFixed(1)}} bps &bull; OFI: ${{sym.ofi_accel.toFixed(1)}}`;
-      const h1Status = document.getElementById("hub-1-status");
-      h1Status.innerText = sym.spread_bps <= 15.0 ? "LAMINAR" : "ALTO SPREAD";
-      h1Status.className = sym.spread_bps <= 15.0 ? "pillar-status cyan mono" : "pillar-status amber mono";
+      document.getElementById("p1-desc").innerText = `Spread: ${{sym.spread_bps.toFixed(1)}} bps · OFI: ${{sym.ofi_accel.toFixed(1)}}`;
+      const p1Status = document.getElementById("p1-status");
+      p1Status.innerText = sym.spread_bps <= 15.0 ? "LAMINAR" : "ALTO SPREAD";
+      p1Status.className = sym.spread_bps <= 15.0 ? "badge-pill cyan mono" : "badge-pill amber mono";
 
-      document.getElementById("hub-2-desc").innerText = `S(norm): ${{sym.normalized_entropy.toFixed(3)}} &bull; Coher: ${{sym.quantum_coherence.toFixed(3)}}`;
-      const h2Status = document.getElementById("hub-2-status");
-      h2Status.innerText = sym.quantum_coherence >= 0.25 ? "COHERENTE" : "DECOHERIDO";
+      document.getElementById("p2-desc").innerText = `S(norm): ${{sym.normalized_entropy.toFixed(3)}} · Coher: ${{sym.quantum_coherence.toFixed(3)}}`;
+      const p2Status = document.getElementById("p2-status");
+      p2Status.innerText = sym.quantum_coherence >= 0.25 ? "COHERENTE" : "DECOHERIDO";
 
-      document.getElementById("hub-3-desc").innerText = `VPIN: ${{sym.vpin.toFixed(3)}} &bull; Kelly: ${{s.kelly_leverage.toFixed(2)}}x`;
-      const h3Status = document.getElementById("hub-3-status");
-      h3Status.innerText = sym.is_toxic ? "ESCUDO BLOQUEO" : "PERMISIVO";
-      h3Status.className = sym.is_toxic ? "pillar-status rose mono" : "pillar-status emerald mono";
+      document.getElementById("p3-desc").innerText = `VPIN: ${{sym.vpin.toFixed(3)}} · Kelly: ${{s.kelly_leverage.toFixed(2)}}x`;
+      const p3Status = document.getElementById("p3-status");
+      p3Status.innerText = sym.is_toxic ? "ESCUDO BLOQUEO" : "PERMISIVO";
+      p3Status.className = sym.is_toxic ? "badge-pill warn mono" : "badge-pill emerald mono";
 
       // Update Operational Leafs (Tier 3)
-      document.getElementById("leaf-1-val").innerText = `${{sym.spread_bps.toFixed(1)}} bps`;
-      const l1Badge = document.getElementById("leaf-1-badge");
+      document.getElementById("l1-val").innerText = `${{sym.spread_bps.toFixed(1)}} bps`;
+      const l1Tag = document.getElementById("l1-tag");
       const passSpread = sym.spread_bps <= 15.0;
-      l1Badge.innerText = passSpread ? "OK" : "ALTO";
-      l1Badge.className = passSpread ? "leaf-badge mono" : "leaf-badge warn mono";
+      l1Tag.innerText = passSpread ? "PASS" : "ALTO";
+      l1Tag.className = passSpread ? "badge-tag mono" : "badge-tag warn mono";
 
-      document.getElementById("leaf-2-val").innerText = `Accel: ${{sym.ofi_accel.toFixed(1)}}`;
-      document.getElementById("leaf-3-val").innerText = `S: ${{sym.normalized_entropy.toFixed(3)}} | C: ${{sym.quantum_coherence.toFixed(3)}}`;
-      document.getElementById("leaf-4-val").innerText = `Mach ${{sym.mach_number.toFixed(2)}} (${{sym.is_cavitation ? 'Cavitación' : 'Sub'}})`;
-      document.getElementById("leaf-5-val").innerText = `VPIN: ${{sym.vpin.toFixed(3)}}`;
-      const l5Badge = document.getElementById("leaf-5-badge");
-      l5Badge.innerText = sym.is_toxic ? "BLOQUEADO" : "PERMISIVO";
-      l5Badge.className = sym.is_toxic ? "leaf-badge warn mono" : "leaf-badge mono";
+      document.getElementById("l2-val").innerText = `Accel: ${{sym.ofi_accel.toFixed(1)}}`;
+      document.getElementById("l3-val").innerText = `S: ${{sym.normalized_entropy.toFixed(3)}} | C: ${{sym.quantum_coherence.toFixed(3)}}`;
+      document.getElementById("l4-val").innerText = `${{sym.mach_number.toFixed(2)}} M (${{sym.is_cavitation ? 'Cavitación' : 'Sub'}})`;
+      document.getElementById("l5-val").innerText = `VPIN: ${{sym.vpin.toFixed(3)}}`;
+      const l5Tag = document.getElementById("l5-tag");
+      l5Tag.innerText = sym.is_toxic ? "BLOQUEADO" : "PASS";
+      l5Tag.className = sym.is_toxic ? "badge-tag warn mono" : "badge-tag mono";
 
-      document.getElementById("leaf-6-val").innerText = passSpread ? "TP 45bps > Costes" : "Fricción Alta";
-      document.getElementById("leaf-7-val").innerText = `${{sym.sor_intent}} (Kelly ${{s.kelly_leverage.toFixed(2)}}x)`;
+      document.getElementById("l6-val").innerText = passSpread ? "TP > Costes" : "Fricción Alta";
+      document.getElementById("l7-val").innerText = `${{sym.sor_intent}} (${{s.kelly_leverage.toFixed(2)}}x)`;
 
       // Update Pre-Trade Gates Badges
       const gSpread = document.getElementById("gate-spread-badge");
@@ -1308,7 +1365,9 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       }}
     }}
 
+    // Init
     updateDashboard(cachedState);
+    drawConnections();
     setInterval(pollStatus, 750);
   </script>
 </body>
