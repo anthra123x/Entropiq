@@ -50,7 +50,7 @@ pub struct PipelineStepTelemetry {
     pub id: u32,
     pub name: String,
     pub code: String,
-    pub status: String, // "PASS", "ACTIVE", "WARNING", "BLOCKED", "IDLE"
+    pub status: String,
     pub value_summary: String,
     pub description: String,
 }
@@ -100,7 +100,6 @@ pub struct WebDashboardState {
     pub max_drawdown: f64,
     pub total_trades: u64,
 
-    // Rich Neural Pipeline and Microstructure Telemetry
     pub symbols: Vec<SymbolStateTelemetry>,
     pub positions: Vec<PositionTelemetry>,
     pub pipeline_steps: Vec<PipelineStepTelemetry>,
@@ -203,8 +202,8 @@ pub async fn start_web_server(state: Arc<RwLock<WebDashboardState>>, port: u16) 
     }
 }
 
-/// Generates the futuristic, ultra-modern Neural Network Quantum Pipeline Dashboard.
-/// Strictly fitted to 100vh without vertical scrolling, with clean typography and zero visual clutter.
+/// Generates the human-crafted, institutional-grade Quantum Microstructure Dashboard.
+/// Uses native CSS Flexbox/Grid for zero text-overlap, an SVG synapse backdrop, and strict 100vh fit.
 pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     let initial_json = serde_json::to_string(initial_state).unwrap_or_else(|_| "{}".to_string());
 
@@ -213,27 +212,27 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Entropiq — Quantum Neural Microstructure Platform</title>
+  <title>Entropiq — Institutional Quantum Microstructure Platform</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {{
       --bg: #07090e;
-      --card-bg: rgba(13, 18, 30, 0.72);
-      --card-border: rgba(255, 255, 255, 0.07);
-      --cyan: #00f2fe;
-      --cyan-glow: rgba(0, 242, 254, 0.35);
+      --card-bg: rgba(13, 19, 32, 0.85);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --cyan: #38bdf8;
+      --cyan-glow: rgba(56, 189, 248, 0.25);
       --emerald: #10b981;
-      --emerald-glow: rgba(16, 185, 129, 0.35);
+      --emerald-glow: rgba(16, 185, 129, 0.25);
       --purple: #818cf8;
-      --purple-glow: rgba(129, 140, 248, 0.35);
-      --amber: #fbbf24;
-      --amber-glow: rgba(251, 191, 36, 0.35);
+      --purple-glow: rgba(129, 140, 248, 0.25);
+      --amber: #f59e0b;
+      --amber-glow: rgba(245, 158, 11, 0.25);
       --rose: #f43f5e;
-      --text: #f1f5f9;
+      --text: #f8fafc;
       --muted: #94a3b8;
-      --subtle: #475569;
+      --subtle: #64748b;
     }}
 
     * {{
@@ -241,7 +240,6 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       margin: 0;
       padding: 0;
       -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
     }}
 
     html, body {{
@@ -250,8 +248,8 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       overflow: hidden;
       background: var(--bg);
       background-image:
-        radial-gradient(circle at 15% 20%, rgba(99, 102, 241, 0.10) 0%, transparent 45%),
-        radial-gradient(circle at 85% 80%, rgba(0, 242, 254, 0.08) 0%, transparent 40%);
+        radial-gradient(circle at 12% 18%, rgba(99, 102, 241, 0.08) 0%, transparent 45%),
+        radial-gradient(circle at 88% 82%, rgba(56, 189, 248, 0.06) 0%, transparent 40%);
       color: var(--text);
       font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }}
@@ -264,14 +262,14 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     }}
 
     .mono {{
-      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
       font-variant-numeric: tabular-nums;
     }}
 
     /* Top Navigation Bar */
     .top-bar {{
-      height: 44px;
-      min-height: 44px;
+      height: 42px;
+      min-height: 42px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -288,21 +286,16 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       gap: 10px;
     }}
     .core-orb-mini {{
-      width: 22px;
-      height: 22px;
+      width: 18px;
+      height: 18px;
       border-radius: 50%;
       background: radial-gradient(circle, var(--cyan) 20%, #6366f1 80%);
-      box-shadow: 0 0 14px var(--cyan-glow);
-      animation: pulseMini 2.5s infinite ease-in-out;
-    }}
-    @keyframes pulseMini {{
-      0%, 100% {{ transform: scale(1); filter: brightness(1); }}
-      50% {{ transform: scale(1.1); filter: brightness(1.3); }}
+      box-shadow: 0 0 10px var(--cyan-glow);
     }}
     .brand-title {{
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 800;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.12em;
       color: #fff;
       display: flex;
       align-items: center;
@@ -310,25 +303,25 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     }}
     .brand-title span {{ color: var(--cyan); }}
     .brand-sub {{
-      font-size: 10px;
-      font-weight: 600;
+      font-size: 9.5px;
+      font-weight: 700;
       color: var(--muted);
-      letter-spacing: 0.06em;
+      letter-spacing: 0.08em;
       background: rgba(255, 255, 255, 0.05);
-      padding: 2px 7px;
-      border-radius: 6px;
+      padding: 2px 6px;
+      border-radius: 4px;
     }}
 
     .top-center {{
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }}
     .asset-tab {{
       background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.07);
       color: var(--muted);
-      padding: 5px 12px;
+      padding: 4px 12px;
       border-radius: 8px;
       font-size: 11px;
       font-weight: 700;
@@ -340,19 +333,19 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     }}
     .asset-tab:hover {{
       color: #fff;
-      border-color: rgba(0, 242, 254, 0.4);
+      border-color: rgba(56, 189, 248, 0.4);
     }}
     .asset-tab.active {{
-      background: rgba(0, 242, 254, 0.12);
+      background: rgba(56, 189, 248, 0.12);
       border-color: var(--cyan);
       color: #fff;
-      box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.15);
     }}
 
     .top-right {{
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }}
     .badge {{
       display: inline-flex;
@@ -360,25 +353,24 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       gap: 5px;
       font-size: 10px;
       font-weight: 700;
-      padding: 4px 10px;
+      padding: 3px 9px;
       border-radius: 20px;
       letter-spacing: 0.04em;
     }}
     .badge.online {{ background: rgba(16, 185, 129, 0.12); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }}
-    .badge.info {{ background: rgba(0, 242, 254, 0.10); color: var(--cyan); border: 1px solid rgba(0, 242, 254, 0.25); }}
-    .badge.amber {{ background: rgba(251, 191, 36, 0.12); color: var(--amber); border: 1px solid rgba(251, 191, 36, 0.3); }}
+    .badge.info {{ background: rgba(56, 189, 248, 0.10); color: var(--cyan); border: 1px solid rgba(56, 189, 248, 0.25); }}
     .badge.purple {{ background: rgba(129, 140, 248, 0.12); color: var(--purple); border: 1px solid rgba(129, 140, 248, 0.3); }}
 
-    /* Main Dashboard Grid: Perfectly Fits Viewport */
+    /* Main Dashboard Grid: Strictly 100vh */
     .dashboard-grid {{
       flex: 1;
       min-height: 0;
       display: grid;
-      grid-template-columns: 1fr 380px;
+      grid-template-columns: 1fr 370px;
       gap: 10px;
     }}
 
-    /* Left Stage: The Neural Graph Canvas */
+    /* Left Stage: Neural Graph with Real HTML Nodes + SVG Synapse Backdrop */
     .neural-stage {{
       background: var(--card-bg);
       backdrop-filter: blur(20px);
@@ -391,13 +383,13 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     }}
 
     .canvas-hud {{
-      height: 38px;
-      min-height: 38px;
+      height: 36px;
+      min-height: 36px;
       padding: 0 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       background: rgba(0, 0, 0, 0.2);
     }}
     .hud-title {{
@@ -417,131 +409,249 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       align-items: center;
       gap: 14px;
     }}
-    .hud-metrics span b {{
-      color: #fff;
-    }}
+    .hud-metrics span b {{ color: #fff; }}
 
-    .canvas-wrap {{
+    /* Synaptic Canvas Container */
+    .neural-viewport {{
       flex: 1;
       min-height: 0;
       width: 100%;
       position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 6px;
+      overflow: hidden;
     }}
 
-    svg.neural-svg {{
+    /* SVG Synaptic Backdrop Layer */
+    svg.synapse-backdrop {{
       width: 100%;
       height: 100%;
-      display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 1;
     }}
-
-    /* SVG Neural Elements */
-    .synapse-base {{
+    .syn-path {{
       fill: none;
-      stroke: rgba(255, 255, 255, 0.07);
+      stroke: rgba(255, 255, 255, 0.08);
       stroke-width: 1.5;
     }}
-    .synapse-pulse {{
+    .syn-pulse {{
       fill: none;
-      stroke: var(--cyan);
       stroke-width: 2.2;
       stroke-linecap: round;
       stroke-dasharray: 8 160;
-      animation: synapseRun 2.8s linear infinite;
+      animation: synPulseMove 3s linear infinite;
     }}
-    .synapse-pulse-purple {{
-      fill: none;
-      stroke: var(--purple);
-      stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-dasharray: 8 160;
-      animation: synapseRun 3.2s linear infinite;
-    }}
-    .synapse-pulse-emerald {{
-      fill: none;
-      stroke: var(--emerald);
-      stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-dasharray: 8 160;
-      animation: synapseRun 2.5s linear infinite;
-    }}
-    @keyframes synapseRun {{
+    .syn-pulse.cyan {{ stroke: var(--cyan); }}
+    .syn-pulse.purple {{ stroke: var(--purple); animation-duration: 3.4s; }}
+    .syn-pulse.emerald {{ stroke: var(--emerald); animation-duration: 2.6s; }}
+
+    @keyframes synPulseMove {{
       from {{ stroke-dashoffset: 168; }}
       to {{ stroke-dashoffset: 0; }}
     }}
 
-    .svg-node-card {{
-      cursor: pointer;
+    /* HTML Nodes Layer (Zero Text Overlap, Flexbox Auto-Layout) */
+    .nodes-layer {{
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: auto;
+    }}
+
+    /* Root Core Node */
+    .node-root {{
+      position: absolute;
+      left: 35px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #0e1e38 0%, #080c16 80%);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      box-shadow: 0 0 24px rgba(56, 189, 248, 0.15), inset 0 0 16px rgba(56, 189, 248, 0.1);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      user-select: none;
+    }}
+    .root-tag {{ font-size: 8px; font-weight: 800; letter-spacing: 0.15em; color: var(--cyan); text-transform: uppercase; }}
+    .root-name {{ font-size: 10px; font-weight: 800; color: #fff; }}
+    .root-phase-badge {{
+      font-size: 7.5px;
+      font-weight: 800;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--amber);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      text-transform: uppercase;
+      max-width: 76px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+
+    /* Intermediate Tier 2 Pillars */
+    .node-pillar {{
+      position: absolute;
+      left: 200px;
+      width: 220px;
+      height: 54px;
+      background: rgba(14, 21, 37, 0.92);
+      border: 1px solid var(--card-border);
+      border-left: 3px solid var(--cyan);
+      border-radius: 10px;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
       transition: all 0.2s ease;
     }}
-    .svg-node-card:hover rect.node-box {{
-      stroke: var(--cyan);
-      fill: rgba(14, 24, 45, 0.95);
-      filter: drop-shadow(0 0 8px rgba(0, 242, 254, 0.3));
+    .node-pillar:hover {{
+      border-color: rgba(255, 255, 255, 0.18);
+      transform: translateX(2px);
     }}
+    .node-pillar.p-purple {{ border-left-color: var(--purple); }}
+    .node-pillar.p-emerald {{ border-left-color: var(--emerald); }}
+
+    .pillar-header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }}
+    .pillar-title {{
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .pillar-status {{
+      font-size: 8.5px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }}
+    .pillar-status.cyan {{ background: rgba(56, 189, 248, 0.12); color: var(--cyan); border: 1px solid rgba(56, 189, 248, 0.3); }}
+    .pillar-status.purple {{ background: rgba(129, 140, 248, 0.12); color: var(--purple); border: 1px solid rgba(129, 140, 248, 0.3); }}
+    .pillar-status.emerald {{ background: rgba(16, 185, 129, 0.12); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }}
+
+    .pillar-sub {{
+      font-size: 9.5px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+
+    /* Operational Tier 3 Leafs */
+    .node-leaf {{
+      position: absolute;
+      left: 490px;
+      width: 360px;
+      height: 34px;
+      background: rgba(11, 17, 30, 0.90);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 8px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+      transition: all 0.2s ease;
+    }}
+    .node-leaf:hover {{
+      border-color: rgba(255, 255, 255, 0.16);
+      background: rgba(14, 22, 38, 0.95);
+    }}
+    .leaf-left {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }}
+    .leaf-dot {{
+      width: 6px;
+      height: 6px;
+      min-width: 6px;
+      border-radius: 50%;
+      background: var(--emerald);
+    }}
+    .leaf-dot.cyan {{ background: var(--cyan); }}
+    .leaf-dot.purple {{ background: var(--purple); }}
+    .leaf-dot.amber {{ background: var(--amber); }}
+
+    .leaf-name {{
+      font-size: 11px;
+      font-weight: 600;
+      color: #e2e8f0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .leaf-right {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }}
+    .leaf-val {{
+      font-size: 10px;
+      font-weight: 600;
+      color: #fff;
+    }}
+    .leaf-badge {{
+      font-size: 8.5px;
+      font-weight: 800;
+      padding: 1px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--emerald);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }}
+    .leaf-badge.warn {{ background: rgba(245, 158, 11, 0.15); color: var(--amber); border-color: rgba(245, 158, 11, 0.3); }}
+    .leaf-badge.purple {{ background: rgba(129, 140, 248, 0.15); color: var(--purple); border-color: rgba(129, 140, 248, 0.3); }}
 
     /* CTQW Dispersion Strip at Bottom of Stage */
     .dispersion-strip {{
-      height: 48px;
-      min-height: 48px;
-      padding: 6px 16px;
+      height: 44px;
+      min-height: 44px;
+      padding: 4px 16px;
       background: rgba(0, 0, 0, 0.35);
-      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
     }}
-    .disp-info {{
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }}
-    .disp-title {{
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      color: var(--muted);
-      text-transform: uppercase;
-    }}
-    .disp-sub {{
-      font-size: 9px;
-      color: var(--subtle);
-    }}
-    .disp-bars-box {{
-      display: flex;
-      align-items: flex-end;
-      gap: 5px;
-      height: 28px;
-    }}
-    .disp-col {{
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
-      width: 24px;
-    }}
-    .disp-bar {{
-      width: 100%;
-      background: rgba(129, 140, 248, 0.5);
-      border-radius: 2px 2px 0 0;
-      min-height: 3px;
-      transition: height 0.3s ease;
-    }}
-    .disp-bar.mid {{
-      background: var(--cyan);
-      box-shadow: 0 0 6px var(--cyan-glow);
-    }}
-    .disp-tag {{
-      font-size: 8px;
-      font-weight: 700;
-      color: var(--subtle);
-    }}
+    .disp-info {{ display: flex; flex-direction: column; gap: 1px; }}
+    .disp-title {{ font-size: 10px; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }}
+    .disp-sub {{ font-size: 9px; color: var(--subtle); }}
+    .disp-bars-box {{ display: flex; align-items: flex-end; gap: 6px; height: 26px; }}
+    .disp-col {{ display: flex; flex-direction: column; align-items: center; gap: 2px; width: 22px; }}
+    .disp-bar {{ width: 100%; background: rgba(129, 140, 248, 0.45); border-radius: 2px 2px 0 0; min-height: 3px; transition: height 0.3s ease; }}
+    .disp-bar.mid {{ background: var(--cyan); }}
+    .disp-tag {{ font-size: 8px; font-weight: 700; color: var(--subtle); }}
 
-    /* Right Panel: Precision Telemetry Drawer */
+    /* Right Column: Precision Telemetry Drawer */
     .telemetry-drawer {{
       background: var(--card-bg);
       backdrop-filter: blur(20px);
@@ -551,50 +661,35 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       flex-direction: column;
       overflow: hidden;
       padding: 12px;
-      gap: 9px;
+      gap: 8px;
     }}
 
-    /* Active Asset Hero */
+    /* Asset Hero Card */
     .asset-hero {{
       background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.06);
       border-radius: 10px;
-      padding: 10px 12px;
+      padding: 9px 12px;
       display: flex;
       justify-content: space-between;
       align-items: center;
     }}
-    .asset-id-box {{
-      display: flex;
-      flex-direction: column;
-    }}
     .asset-symbol {{
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 800;
       color: #fff;
       display: flex;
       align-items: center;
       gap: 6px;
     }}
-    .asset-micro {{
-      font-size: 11px;
-      color: var(--muted);
-      margin-top: 1px;
-    }}
-    .asset-price-box {{
-      text-align: right;
-    }}
-    .asset-price {{
-      font-size: 20px;
-      font-weight: 800;
-      color: var(--cyan);
-      text-shadow: 0 0 10px rgba(0, 242, 254, 0.25);
-    }}
+    .asset-micro {{ font-size: 10.5px; color: var(--muted); margin-top: 1px; }}
+    .asset-price-box {{ text-align: right; }}
+    .asset-price {{ font-size: 19px; font-weight: 800; color: var(--cyan); }}
     .asset-spread-badge {{
       display: inline-block;
       font-size: 9px;
       font-weight: 700;
-      padding: 2px 6px;
+      padding: 1px 6px;
       border-radius: 4px;
       background: rgba(16, 185, 129, 0.15);
       color: var(--emerald);
@@ -612,7 +707,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       background: rgba(0, 0, 0, 0.25);
       border: 1px solid rgba(255, 255, 255, 0.04);
       border-radius: 8px;
-      padding: 7px 10px;
+      padding: 6px 10px;
       display: flex;
       flex-direction: column;
       gap: 2px;
@@ -621,18 +716,14 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       font-size: 9px;
       font-weight: 700;
       color: var(--muted);
-      letter-spacing: 0.06em;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
     }}
-    .quad-val {{
-      font-size: 13px;
-      font-weight: 700;
-      color: #fff;
-    }}
+    .quad-val {{ font-size: 12.5px; font-weight: 700; color: #fff; }}
 
     /* Section Title */
     .drawer-sec-title {{
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 700;
       letter-spacing: 0.07em;
       color: var(--muted);
@@ -643,7 +734,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       padding: 0 2px;
     }}
 
-    /* Pre-Trade Gates Compact List */
+    /* Pre-Trade Gates List */
     .gates-box {{
       background: rgba(0, 0, 0, 0.25);
       border: 1px solid rgba(255, 255, 255, 0.04);
@@ -651,44 +742,26 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       padding: 4px 8px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
     }}
     .gate-row {{
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 5px 6px;
+      padding: 4px 6px;
       border-radius: 6px;
-      font-size: 11px;
-      transition: background 0.15s;
+      font-size: 10.5px;
     }}
-    .gate-row:hover {{
-      background: rgba(255, 255, 255, 0.03);
-    }}
-    .gate-name-wrap {{
-      display: flex;
-      align-items: center;
-      gap: 7px;
-    }}
-    .gate-dot {{
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--emerald);
-      box-shadow: 0 0 6px var(--emerald-glow);
-    }}
-    .gate-dot.amber {{ background: var(--amber); box-shadow: 0 0 6px var(--amber-glow); }}
-    .gate-dot.purple {{ background: var(--purple); box-shadow: 0 0 6px var(--purple-glow); }}
-    .gate-name {{
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text);
-    }}
+    .gate-row:hover {{ background: rgba(255, 255, 255, 0.02); }}
+    .gate-name-wrap {{ display: flex; align-items: center; gap: 7px; }}
+    .gate-dot {{ width: 5px; height: 5px; border-radius: 50%; background: var(--emerald); }}
+    .gate-dot.purple {{ background: var(--purple); }}
+    .gate-name {{ font-size: 10.5px; font-weight: 600; color: var(--text); }}
     .gate-badge {{
-      font-size: 9px;
-      font-weight: 700;
-      padding: 2px 7px;
-      border-radius: 4px;
+      font-size: 8.5px;
+      font-weight: 800;
+      padding: 1px 6px;
+      border-radius: 3px;
       background: rgba(16, 185, 129, 0.15);
       color: var(--emerald);
       border: 1px solid rgba(16, 185, 129, 0.3);
@@ -699,53 +772,45 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       background: rgba(0, 0, 0, 0.25);
       border: 1px solid rgba(255, 255, 255, 0.04);
       border-radius: 10px;
-      padding: 8px 12px;
+      padding: 7px 10px;
       display: flex;
       flex-direction: column;
-      gap: 5px;
+      gap: 4px;
     }}
     .broker-row {{
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 11px;
+      font-size: 10.5px;
     }}
     .broker-label {{ color: var(--muted); }}
     .broker-val {{ font-weight: 700; color: #fff; }}
 
-    /* Stream Ticker Bar at Bottom of Drawer */
+    /* Stream Ticker Bar at Bottom */
     .ticker-bar {{
-      height: 28px;
-      min-height: 28px;
+      height: 26px;
+      min-height: 26px;
       background: rgba(0, 0, 0, 0.4);
       border: 1px solid rgba(255, 255, 255, 0.04);
       border-radius: 6px;
-      padding: 0 10px;
+      padding: 0 8px;
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 10px;
+      gap: 7px;
+      font-size: 9.5px;
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
     }}
     .ticker-dot {{
-      width: 6px;
-      height: 6px;
-      min-width: 6px;
+      width: 5px;
+      height: 5px;
+      min-width: 5px;
       border-radius: 50%;
       background: var(--emerald);
-      box-shadow: 0 0 6px var(--emerald-glow);
-      animation: pulseMini 2s infinite ease-in-out;
     }}
-    .ticker-text {{
-      color: var(--muted);
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }}
-    .ticker-text b {{
-      color: #fff;
-    }}
+    .ticker-text {{ color: var(--muted); overflow: hidden; text-overflow: ellipsis; }}
+    .ticker-text b {{ color: #fff; }}
   </style>
 </head>
 <body>
@@ -766,7 +831,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     <!-- Right System Badges -->
     <div class="top-right">
       <div class="badge online" id="badge-ws">● STREAMER ACTIVO</div>
-      <div class="badge info" id="badge-market" title="El mercado de criptomonedas no cierra jamás: opera 24/7/365 continuo">
+      <div class="badge info" id="badge-market" title="El mercado de criptomonedas opera 24 horas al día, 7 días a la semana sin interrupción">
         ● CRIPTO 24/7 (CONTINUO)
       </div>
       <div class="badge purple mono" id="badge-phase">FASE: THERMALNOISE</div>
@@ -776,7 +841,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
   <!-- Main 100vh Layout Grid -->
   <main class="dashboard-grid">
 
-    <!-- Left Stage: Interactive SVG Neural Network Canvas -->
+    <!-- Left Stage: Interactive Neural Network Graph -->
     <section class="neural-stage">
       <div class="canvas-hud">
         <div class="hud-title">
@@ -784,7 +849,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
-          Arquitectura de Decisión Neural Cuántica (3-Tier CTQW)
+          Arquitectura Neural Cuántica de Microestructura (3-Tier CTQW)
         </div>
         <div class="hud-metrics mono">
           <span>Throughput: <b id="val-throughput">0</b> ticks/s</span>
@@ -793,176 +858,174 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
         </div>
       </div>
 
-      <div class="canvas-wrap">
-        <svg class="neural-svg" viewBox="0 0 940 450" preserveAspectRatio="xMidYMid meet">
-          <defs>
-            <radialGradient id="grad-core" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="#00f2fe" stop-opacity="1" />
-              <stop offset="40%" stop-color="#3b82f6" stop-opacity="0.8" />
-              <stop offset="100%" stop-color="#6366f1" stop-opacity="0.1" />
-            </radialGradient>
-            <radialGradient id="grad-aura" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.3" />
-              <stop offset="60%" stop-color="#818cf8" stop-opacity="0.1" />
-              <stop offset="100%" stop-color="#07090e" stop-opacity="0" />
-            </radialGradient>
-            <filter id="glow-filter" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="5" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-          </defs>
+      <div class="neural-viewport">
+        <!-- SVG Synapse Backdrop: Precise Bézier Connections -->
+        <svg class="synapse-backdrop" viewBox="0 0 880 440" preserveAspectRatio="none">
+          <!-- Tier 1 to Tier 2 Curves -->
+          <path d="M 123 220 C 165 220, 165 87, 200 87" class="syn-path" />
+          <path d="M 123 220 C 165 220, 165 87, 200 87" class="syn-pulse cyan" />
 
-          <!-- Synaptic Connecting Wires (Tier 1 -> Tier 2) -->
-          <g class="synapse-layer-1">
-            <path d="M 125 225 C 200 225, 200 115, 275 115" class="synapse-base" />
-            <path d="M 125 225 C 200 225, 200 115, 275 115" class="synapse-pulse" />
+          <path d="M 123 220 C 165 220, 165 220, 200 220" class="syn-path" />
+          <path d="M 123 220 C 165 220, 165 220, 200 220" class="syn-pulse purple" />
 
-            <path d="M 125 225 C 200 225, 200 225, 275 225" class="synapse-base" />
-            <path d="M 125 225 C 200 225, 200 225, 275 225" class="synapse-pulse-purple" />
+          <path d="M 123 220 C 165 220, 165 353, 200 353" class="syn-path" />
+          <path d="M 123 220 C 165 220, 165 353, 200 353" class="syn-pulse emerald" />
 
-            <path d="M 125 225 C 200 225, 200 335, 275 335" class="synapse-base" />
-            <path d="M 125 225 C 200 225, 200 335, 275 335" class="synapse-pulse-emerald" />
-          </g>
+          <!-- Tier 2 to Tier 3 Curves -->
+          <!-- From Pillar 1 (y: 87) -->
+          <path d="M 420 87 C 455 87, 455 59, 490 59" class="syn-path" />
+          <path d="M 420 87 C 455 87, 455 59, 490 59" class="syn-pulse cyan" />
 
-          <!-- Synaptic Connecting Wires (Tier 2 -> Tier 3 Leafs) -->
-          <g class="synapse-layer-2">
-            <!-- Hub 1 to Leafs 1, 2 -->
-            <path d="M 485 115 C 530 115, 530 85, 575 85" class="synapse-base" />
-            <path d="M 485 115 C 530 115, 530 85, 575 85" class="synapse-pulse" />
+          <path d="M 420 87 C 455 87, 455 103, 490 103" class="syn-path" />
+          <path d="M 420 87 C 455 87, 455 103, 490 103" class="syn-pulse cyan" />
 
-            <path d="M 485 115 C 530 115, 530 135, 575 135" class="synapse-base" />
-            <path d="M 485 115 C 530 115, 530 135, 575 135" class="synapse-pulse" />
+          <!-- From Pillar 2 (y: 220) -->
+          <path d="M 420 220 C 455 220, 455 189, 490 189" class="syn-path" />
+          <path d="M 420 220 C 455 220, 455 189, 490 189" class="syn-pulse purple" />
 
-            <!-- Hub 2 to Leafs 3, 4 -->
-            <path d="M 485 225 C 530 225, 530 200, 575 200" class="synapse-base" />
-            <path d="M 485 225 C 530 225, 530 200, 575 200" class="synapse-pulse-purple" />
+          <path d="M 420 220 C 455 220, 455 233, 490 233" class="syn-path" />
+          <path d="M 420 220 C 455 220, 455 233, 490 233" class="syn-pulse purple" />
 
-            <path d="M 485 225 C 530 225, 530 250, 575 250" class="synapse-base" />
-            <path d="M 485 225 C 530 225, 530 250, 575 250" class="synapse-pulse-purple" />
+          <!-- From Pillar 3 (y: 353) -->
+          <path d="M 420 353 C 455 353, 455 319, 490 319" class="syn-path" />
+          <path d="M 420 353 C 455 353, 455 319, 490 319" class="syn-pulse emerald" />
 
-            <!-- Hub 3 to Leafs 5, 6, 7 -->
-            <path d="M 485 335 C 530 335, 530 310, 575 310" class="synapse-base" />
-            <path d="M 485 335 C 530 335, 530 310, 575 310" class="synapse-pulse-emerald" />
+          <path d="M 420 353 C 455 353, 455 363, 490 363" class="syn-path" />
+          <path d="M 420 353 C 455 353, 455 363, 490 363" class="syn-pulse emerald" />
 
-            <path d="M 485 335 C 530 335, 530 355, 575 355" class="synapse-base" />
-            <path d="M 485 335 C 530 335, 530 355, 575 355" class="synapse-pulse-emerald" />
+          <path d="M 420 353 C 455 353, 455 407, 490 407" class="syn-path" />
+          <path d="M 420 353 C 455 353, 455 407, 490 407" class="syn-pulse emerald" />
+        </svg>
 
-            <path d="M 485 335 C 530 335, 530 400, 575 400" class="synapse-base" />
-            <path d="M 485 335 C 530 335, 530 400, 575 400" class="synapse-pulse-emerald" />
-          </g>
+        <!-- HTML Nodes Layer: Guarantees zero text-overlaps via CSS Flexbox -->
+        <div class="nodes-layer">
+          <!-- Tier 1: Root Core Sphere -->
+          <div class="node-root">
+            <span class="root-tag">QUANTUM</span>
+            <span class="root-name">CORE RK4</span>
+            <span class="root-phase-badge mono" id="svg-core-phase">THERMAL</span>
+          </div>
 
-          <!-- TIER 1: The Central Quantum Core Sphere -->
-          <g transform="translate(85, 225)">
-            <!-- Outer Pulsing Halo -->
-            <circle cx="0" cy="0" r="68" fill="url(#grad-aura)" />
-            <circle cx="0" cy="0" r="54" fill="none" stroke="rgba(0, 242, 254, 0.2)" stroke-width="1.5" stroke-dasharray="4 6">
-              <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="20s" repeatCount="indefinite"/>
-            </circle>
-            <!-- Core Sphere -->
-            <circle cx="0" cy="0" r="42" fill="url(#grad-core)" filter="url(#glow-filter)" />
-            <circle cx="0" cy="0" r="42" fill="none" stroke="rgba(255, 255, 255, 0.5)" stroke-width="1" />
-            <!-- Text inside core -->
-            <text x="0" y="-8" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="800" letter-spacing="1.5">QUANTUM</text>
-            <text x="0" y="5" text-anchor="middle" fill="#00f2fe" font-size="8" font-weight="700">CORE RK4</text>
-            <rect x="-30" y="12" width="60" height="14" rx="7" fill="rgba(0, 0, 0, 0.45)" stroke="rgba(0, 242, 254, 0.3)" stroke-width="0.8" />
-            <text x="0" y="22" id="svg-core-phase" text-anchor="middle" fill="#fbbf24" font-size="7.5" font-weight="800" font-family="'JetBrains Mono', monospace">THERMAL</text>
-          </g>
+          <!-- Tier 2: Intermediate Processing Pillars -->
+          <!-- Pillar 1: Ingestión & Spread -->
+          <div class="node-pillar" style="top: 60px;">
+            <div class="pillar-header">
+              <span class="pillar-title">01 · INGESTIÓN & SPREAD</span>
+              <span class="pillar-status cyan mono" id="hub-1-status">LAMINAR</span>
+            </div>
+            <span class="pillar-sub mono" id="hub-1-desc">Spread: 2.5 bps &bull; Profundidad: OK</span>
+          </div>
 
-          <!-- TIER 2: Intermediate Processing Clusters -->
-          <!-- Hub 1: Microestructura L1/L2 -->
-          <g class="svg-node-card" transform="translate(275, 87)">
-            <rect class="node-box" width="210" height="56" rx="10" fill="rgba(13, 20, 35, 0.88)" stroke="rgba(0, 242, 254, 0.3)" stroke-width="1.2" />
-            <circle cx="18" cy="22" r="5" fill="#00f2fe" filter="url(#glow-filter)" />
-            <text x="32" y="22" fill="#ffffff" font-size="11" font-weight="700">01 · INGESTIÓN & SPREAD</text>
-            <text x="32" y="38" id="hub-1-desc" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">Spread: -- bps &bull; OFI: --</text>
-            <rect x="150" y="10" width="50" height="16" rx="4" fill="rgba(0, 242, 254, 0.12)" stroke="rgba(0, 242, 254, 0.3)" stroke-width="0.8" />
-            <text x="175" y="21" id="hub-1-status" text-anchor="middle" fill="#00f2fe" font-size="8" font-weight="800">LAMINAR</text>
-          </g>
+          <!-- Pillar 2: Física Cuántica & Mach -->
+          <div class="node-pillar p-purple" style="top: 193px;">
+            <div class="pillar-header">
+              <span class="pillar-title">02 · FÍSICA & MATRIZ ρ</span>
+              <span class="pillar-status purple mono" id="hub-2-status">COHERENTE</span>
+            </div>
+            <span class="pillar-sub mono" id="hub-2-desc">S(norm): 0.81 &bull; Coher: 0.25</span>
+          </div>
 
-          <!-- Hub 2: Física Cuántica & Fluidos -->
-          <g class="svg-node-card" transform="translate(275, 197)">
-            <rect class="node-box" width="210" height="56" rx="10" fill="rgba(13, 20, 35, 0.88)" stroke="rgba(129, 140, 248, 0.3)" stroke-width="1.2" />
-            <circle cx="18" cy="22" r="5" fill="#818cf8" filter="url(#glow-filter)" />
-            <text x="32" y="22" fill="#ffffff" font-size="11" font-weight="700">02 · FÍSICA & MATRIZ ρ</text>
-            <text x="32" y="38" id="hub-2-desc" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">S(norm): -- &bull; Coher: --</text>
-            <rect x="145" y="10" width="55" height="16" rx="4" fill="rgba(129, 140, 248, 0.12)" stroke="rgba(129, 140, 248, 0.3)" stroke-width="0.8" />
-            <text x="172" y="21" id="hub-2-status" text-anchor="middle" fill="#818cf8" font-size="8" font-weight="800">COHERENTE</text>
-          </g>
+          <!-- Pillar 3: Valuación Pre-Trade & SOR -->
+          <div class="node-pillar p-emerald" style="top: 326px;">
+            <div class="pillar-header">
+              <span class="pillar-title">03 · VALUACIÓN & SOR</span>
+              <span class="pillar-status emerald mono" id="hub-3-status">PERMISIVO</span>
+            </div>
+            <span class="pillar-sub mono" id="hub-3-desc">6 Puertas Pre-Trade &bull; Half-Kelly 1.0x</span>
+          </div>
 
-          <!-- Hub 3: Valuación Pre-Trade & SOR -->
-          <g class="svg-node-card" transform="translate(275, 307)">
-            <rect class="node-box" width="210" height="56" rx="10" fill="rgba(13, 20, 35, 0.88)" stroke="rgba(16, 185, 129, 0.3)" stroke-width="1.2" />
-            <circle cx="18" cy="22" r="5" fill="#10b981" filter="url(#glow-filter)" />
-            <text x="32" y="22" fill="#ffffff" font-size="11" font-weight="700">03 · VALUACIÓN & SOR</text>
-            <text x="32" y="38" id="hub-3-desc" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">6 Gates &bull; Half-Kelly 1.0x</text>
-            <rect x="148" y="10" width="52" height="16" rx="4" fill="rgba(16, 185, 129, 0.12)" stroke="rgba(16, 185, 129, 0.3)" stroke-width="0.8" />
-            <text x="174" y="21" id="hub-3-status" text-anchor="middle" fill="#10b981" font-size="8" font-weight="800">PERMISIVO</text>
-          </g>
-
-          <!-- TIER 3: Operational Micro-Nodes (Leaf Fan-Out) -->
-          <!-- Leaf 1: Spread Bid/Ask -->
-          <g class="svg-node-card" transform="translate(575, 68)">
-            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
-            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Spread Bid-Ask Dinámico</text>
-            <text x="210" y="21" id="leaf-1-val" fill="#00f2fe" font-size="9.5" font-family="'JetBrains Mono', monospace">2.5 bps</text>
-            <circle cx="295" cy="17" r="3.5" fill="#10b981" />
-          </g>
+          <!-- Tier 3: Operational Leafs (Fan-Out) -->
+          <!-- Leaf 1: Spread Bid-Ask -->
+          <div class="node-leaf" style="top: 42px;">
+            <div class="leaf-left">
+              <span class="leaf-dot cyan"></span>
+              <span class="leaf-name">Spread Bid-Ask Dinámico</span>
+            </div>
+            <div class="leaf-right">
+              <span class="leaf-val mono" id="leaf-1-val">2.5 bps</span>
+              <span class="leaf-badge mono" id="leaf-1-badge">OK</span>
+            </div>
+          </div>
 
           <!-- Leaf 2: Order Flow Imbalance (OFI) -->
-          <g class="svg-node-card" transform="translate(575, 118)">
-            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
-            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Order Flow Imbalance (OFI)</text>
-            <text x="210" y="21" id="leaf-2-val" fill="#94a3b8" font-size="9.5" font-family="'JetBrains Mono', monospace">Accel: 0.0</text>
-            <circle cx="295" cy="17" r="3.5" fill="#10b981" />
-          </g>
+          <div class="node-leaf" style="top: 86px;">
+            <div class="leaf-left">
+              <span class="leaf-dot cyan"></span>
+              <span class="leaf-name">Order Flow Imbalance (OFI)</span>
+            </div>
+            <div class="leaf-right">
+              <span class="leaf-val mono" id="leaf-2-val">Accel: 0.0</span>
+              <span class="leaf-badge mono">ESTABLE</span>
+            </div>
+          </div>
 
           <!-- Leaf 3: Matriz Densidad von Neumann -->
-          <g class="svg-node-card" transform="translate(575, 183)">
-            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
-            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Operador Densidad von Neumann (ρ)</text>
-            <text x="210" y="21" id="leaf-3-val" fill="#818cf8" font-size="9.5" font-family="'JetBrains Mono', monospace">S: 0.81 | C: 0.25</text>
-            <circle cx="295" cy="17" r="3.5" fill="#818cf8" />
-          </g>
+          <div class="node-leaf" style="top: 172px;">
+            <div class="leaf-left">
+              <span class="leaf-dot purple"></span>
+              <span class="leaf-name">Operador Densidad von Neumann (ρ)</span>
+            </div>
+            <div class="leaf-right">
+              <span class="leaf-val mono" id="leaf-3-val">S: 0.81 | C: 0.25</span>
+              <span class="leaf-badge purple mono">COHER</span>
+            </div>
+          </div>
 
-          <!-- Leaf 4: Régimen Fluídico & Mach -->
-          <g class="svg-node-card" transform="translate(575, 233)">
-            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
-            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Hidrodinámica & Mach Shockwave</text>
-            <text x="210" y="21" id="leaf-4-val" fill="#00f2fe" font-size="9.5" font-family="'JetBrains Mono', monospace">Mach 0.00 (Sub)</text>
-            <circle cx="295" cy="17" r="3.5" fill="#00f2fe" />
-          </g>
+          <!-- Leaf 4: Hidrodinámica & Mach -->
+          <div class="node-leaf" style="top: 216px;">
+            <div class="leaf-left">
+              <span class="leaf-dot cyan"></span>
+              <span class="leaf-name">Hidrodinámica & Mach Shockwave</span>
+            </div>
+            <div class="leaf-right">
+              <span class="leaf-val mono" id="leaf-4-val">Mach 0.00 (Sub)</span>
+              <span class="leaf-badge mono">SUB</span>
+            </div>
+          </div>
 
           <!-- Leaf 5: Escudo Tóxico VPIN -->
-          <g class="svg-node-card" transform="translate(575, 293)">
-            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
-            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Escudo Toxicidad Flujo (VPIN)</text>
-            <text x="210" y="21" id="leaf-5-val" fill="#10b981" font-size="9.5" font-family="'JetBrains Mono', monospace">VPIN: 0.000</text>
-            <circle cx="295" cy="17" r="3.5" fill="#10b981" />
-          </g>
+          <div class="node-leaf" style="top: 302px;">
+            <div class="leaf-left">
+              <span class="leaf-dot"></span>
+              <span class="leaf-name">Escudo Toxicidad Flujo (VPIN)</span>
+            </div>
+            <div class="leaf-right">
+              <span class="leaf-val mono" id="leaf-5-val">VPIN: 0.000</span>
+              <span class="leaf-badge mono" id="leaf-5-badge">PERMISIVO</span>
+            </div>
+          </div>
 
-          <!-- Leaf 6: Margen de Retorno vs Fricción -->
-          <g class="svg-node-card" transform="translate(575, 338)">
-            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
-            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Margen Retorno vs Fricción Fee</text>
-            <text x="210" y="21" id="leaf-6-val" fill="#fbbf24" font-size="9.5" font-family="'JetBrains Mono', monospace">TP 45bps &gt; Fee</text>
-            <circle cx="295" cy="17" r="3.5" fill="#10b981" />
-          </g>
+          <!-- Leaf 6: Margen Retorno vs Fricción -->
+          <div class="node-leaf" style="top: 346px;">
+            <div class="leaf-left">
+              <span class="leaf-dot amber"></span>
+              <span class="leaf-name">Margen Retorno vs Fricción Fee</span>
+            </div>
+            <div class="leaf-right">
+              <span class="leaf-val mono" id="leaf-6-val">TP 45bps &gt; Fee</span>
+              <span class="leaf-badge mono" id="leaf-6-badge">PASS</span>
+            </div>
+          </div>
 
-          <!-- Leaf 7: SOR Router & Alpaca Execution -->
-          <g class="svg-node-card" transform="translate(575, 383)">
-            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
-            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Enrutador SOR & Límite Alpaca REST</text>
-            <text x="210" y="21" id="leaf-7-val" fill="#a78bfa" font-size="9.5" font-family="'JetBrains Mono', monospace">Hold &bull; Kelly: 0.2x</text>
-            <circle cx="295" cy="17" r="3.5" fill="#a78bfa" />
-          </g>
-        </svg>
+          <!-- Leaf 7: SOR Router & Alpaca Limit -->
+          <div class="node-leaf" style="top: 390px;">
+            <div class="leaf-left">
+              <span class="leaf-dot purple"></span>
+              <span class="leaf-name">Enrutador SOR & Límite Alpaca REST</span>
+            </div>
+            <div class="leaf-right">
+              <span class="leaf-val mono" id="leaf-7-val">Hold &bull; Kelly: 0.2x</span>
+              <span class="leaf-badge purple mono">LISTO</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Integrated CTQW Dispersion Strip -->
       <div class="dispersion-strip">
         <div class="disp-info">
           <span class="disp-title">Dispersión de Paquete de Ondas Cuántico CTQW</span>
-          <span class="disp-sub">Distribución probabilística de penetración en 8 niveles de profundidad del libro</span>
+          <span class="disp-sub">Probabilidades de penetración en 8 niveles del libro de órdenes</span>
         </div>
         <div class="disp-bars-box" id="dispersion-bars-row">
           <!-- Injected via JS -->
@@ -970,7 +1033,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       </div>
     </section>
 
-    <!-- Right Column: Precision Intelligence Panel (Fits 100vh) -->
+    <!-- Right Column: Precision Intelligence Panel -->
     <aside class="telemetry-drawer">
 
       <!-- Active Asset Hero Card -->
@@ -1084,7 +1147,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
         </div>
       </div>
 
-      <!-- Compact Live Ticker Event Bar -->
+      <!-- Compact Live Ticker Bar at Bottom -->
       <div class="ticker-bar mono">
         <div class="ticker-dot"></div>
         <div class="ticker-text" id="live-ticker-msg">
@@ -1136,33 +1199,40 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       document.getElementById("quad-mach").innerText = `${{sym.mach_number.toFixed(2)}} M`;
       document.getElementById("quad-vpin").innerText = sym.vpin.toFixed(3);
 
-      // Update SVG Intermediate Hubs
-      document.getElementById("hub-1-desc").innerText = `Spread: ${{sym.spread_bps.toFixed(1)}} bps &bull; Profundidad: OK`;
+      // Update Intermediate Pillars (Tier 2)
+      document.getElementById("hub-1-desc").innerText = `Spread: ${{sym.spread_bps.toFixed(1)}} bps &bull; OFI: ${{sym.ofi_accel.toFixed(1)}}`;
       const h1Status = document.getElementById("hub-1-status");
       h1Status.innerText = sym.spread_bps <= 15.0 ? "LAMINAR" : "ALTO SPREAD";
-      h1Status.style.color = sym.spread_bps <= 15.0 ? "var(--cyan)" : "var(--amber)";
+      h1Status.className = sym.spread_bps <= 15.0 ? "pillar-status cyan mono" : "pillar-status amber mono";
 
       document.getElementById("hub-2-desc").innerText = `S(norm): ${{sym.normalized_entropy.toFixed(3)}} &bull; Coher: ${{sym.quantum_coherence.toFixed(3)}}`;
       const h2Status = document.getElementById("hub-2-status");
       h2Status.innerText = sym.quantum_coherence >= 0.25 ? "COHERENTE" : "DECOHERIDO";
-      h2Status.style.color = sym.quantum_coherence >= 0.25 ? "var(--purple)" : "var(--muted)";
 
       document.getElementById("hub-3-desc").innerText = `VPIN: ${{sym.vpin.toFixed(3)}} &bull; Kelly: ${{s.kelly_leverage.toFixed(2)}}x`;
       const h3Status = document.getElementById("hub-3-status");
       h3Status.innerText = sym.is_toxic ? "ESCUDO BLOQUEO" : "PERMISIVO";
-      h3Status.style.color = sym.is_toxic ? "var(--rose)" : "var(--emerald)";
+      h3Status.className = sym.is_toxic ? "pillar-status rose mono" : "pillar-status emerald mono";
 
-      // Update SVG Micro-Nodes (Leafs)
-      document.getElementById("leaf-1-val").innerText = `${{sym.spread_bps.toFixed(1)}} bps (Bid: $${{sym.best_bid.toFixed(2)}})`;
+      // Update Operational Leafs (Tier 3)
+      document.getElementById("leaf-1-val").innerText = `${{sym.spread_bps.toFixed(1)}} bps`;
+      const l1Badge = document.getElementById("leaf-1-badge");
+      const passSpread = sym.spread_bps <= 15.0;
+      l1Badge.innerText = passSpread ? "OK" : "ALTO";
+      l1Badge.className = passSpread ? "leaf-badge mono" : "leaf-badge warn mono";
+
       document.getElementById("leaf-2-val").innerText = `Accel: ${{sym.ofi_accel.toFixed(1)}}`;
       document.getElementById("leaf-3-val").innerText = `S: ${{sym.normalized_entropy.toFixed(3)}} | C: ${{sym.quantum_coherence.toFixed(3)}}`;
-      document.getElementById("leaf-4-val").innerText = `Mach ${{sym.mach_number.toFixed(2)}} (${{sym.is_cavitation ? 'Cavitación' : 'Sub'}})`
-      document.getElementById("leaf-5-val").innerText = `VPIN: ${{sym.vpin.toFixed(3)}} ${{sym.is_toxic ? '[ALTO]' : '[OK]'}}`;
-      document.getElementById("leaf-6-val").innerText = sym.spread_bps <= 15.0 ? "Margen > 10bps (PASS)" : "Fricción Alta";
-      document.getElementById("leaf-7-val").innerText = `${{sym.sor_intent}} &bull; Kelly ${{s.kelly_leverage.toFixed(2)}}x`;
+      document.getElementById("leaf-4-val").innerText = `Mach ${{sym.mach_number.toFixed(2)}} (${{sym.is_cavitation ? 'Cavitación' : 'Sub'}})`;
+      document.getElementById("leaf-5-val").innerText = `VPIN: ${{sym.vpin.toFixed(3)}}`;
+      const l5Badge = document.getElementById("leaf-5-badge");
+      l5Badge.innerText = sym.is_toxic ? "BLOQUEADO" : "PERMISIVO";
+      l5Badge.className = sym.is_toxic ? "leaf-badge warn mono" : "leaf-badge mono";
+
+      document.getElementById("leaf-6-val").innerText = passSpread ? "TP 45bps > Costes" : "Fricción Alta";
+      document.getElementById("leaf-7-val").innerText = `${{sym.sor_intent}} (Kelly ${{s.kelly_leverage.toFixed(2)}}x)`;
 
       // Update Pre-Trade Gates Badges
-      const passSpread = sym.spread_bps <= 15.0;
       const gSpread = document.getElementById("gate-spread-badge");
       gSpread.innerText = passSpread ? "PASS" : "RECHAZO";
       gSpread.style.color = passSpread ? "var(--emerald)" : "var(--rose)";
@@ -1172,7 +1242,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       if (dispRow && sym.depth_dispersion) {{
         dispRow.innerHTML = sym.depth_dispersion.map((prob, idx) => {{
           const isMid = idx === 3 || idx === 4;
-          const h = Math.max(4, Math.min(26, prob * 55));
+          const h = Math.max(4, Math.min(24, prob * 50));
           return `
             <div class="disp-col">
               <div class="disp-bar ${{isMid ? 'mid' : ''}}" style="height: ${{h}}px;"></div>
@@ -1192,8 +1262,8 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
         wsBadge.className = "badge online";
         wsBadge.innerText = `● STREAMER ACTIVO (${{s.feed.toUpperCase()}})`;
       }} else {{
-        wsBadge.className = "badge amber";
-        wsBadge.innerText = "○ WS CONECTANDO...";
+        wsBadge.className = "badge info";
+        wsBadge.innerText = "○ WS RECONECTANDO...";
       }}
 
       document.getElementById("badge-phase").innerText = `FASE: ${{s.market_phase}}`;
@@ -1209,7 +1279,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
 
       const posLabel = document.getElementById("card-pos-count");
       if (s.positions && s.positions.length > 0) {{
-        posLabel.innerText = `${{s.positions.length}} abierta(s) en broker`;
+        posLabel.innerText = `${{s.positions.length}} activa(s) en broker`;
         posLabel.style.color = "var(--emerald)";
       }} else {{
         posLabel.innerText = "0 abiertas (Sin riesgo nocturno)";
