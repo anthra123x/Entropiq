@@ -52,8 +52,8 @@ impl SmartOrderRouter {
             };
         }
 
-        let spread = (best_ask - best_bid).max(0.01);
-        let mid = (best_ask + best_bid) * 0.5;
+        let _spread = (best_ask - best_bid).max(0.01);
+        let _mid = (best_ask + best_bid) * 0.5;
 
         // 3. SuperconductingBreakout Regime: Aggressive Taker
         // High tunneling probability through the barrier + strong directional state bias
@@ -77,24 +77,22 @@ impl SmartOrderRouter {
             }
         }
 
-        // 4. CoherentCondensate Regime: Passive Maker Spread Capture
-        // Stealth accumulation detected (entropy collapse) and flow is laminar: post passive limit orders
+        // 4. CoherentCondensate Regime: Institutional Accumulation / Dip-Buying
+        // Stealth accumulation detected (entropy collapse) and flow is laminar: execute taker on verified bias
         if snapshot.active_phase == MarketQuantumPhase::CoherentCondensate && !snapshot.is_toxic_flow {
             if snapshot.state_bias > 0.03 || snapshot.ofi_acceleration > 0.005 {
-                // Skewed positive, but barrier holds: post at Best Bid or just above
-                let target_price = (best_bid + spread * 0.1).min(mid);
-                return OrderIntent::PassiveMaker {
+                let urgency = 0.65;
+                return OrderIntent::AggressiveTaker {
                     side: Side::Buy,
-                    target_price,
                     size_ratio: base_size_multiplier.clamp(0.1, 1.2),
+                    urgency,
                 };
             } else if snapshot.state_bias < -0.03 || snapshot.ofi_acceleration < -0.005 {
-                // Skewed negative, but barrier holds: post at Best Ask or just below
-                let target_price = (best_ask - spread * 0.1).max(mid);
-                return OrderIntent::PassiveMaker {
+                let urgency = 0.65;
+                return OrderIntent::AggressiveTaker {
                     side: Side::Sell,
-                    target_price,
                     size_ratio: base_size_multiplier.clamp(0.1, 1.2),
+                    urgency,
                 };
             }
         }

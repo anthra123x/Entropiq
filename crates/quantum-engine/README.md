@@ -24,8 +24,9 @@ Motor unificado de orquestación analítica cuántico-econofísica. Transforma e
 - `src/audit.rs` → Monitoreo de riesgo, apalancamiento Half-Kelly y métricas de rendimiento.
 
 ## 5. Decisiones y gotchas
-- **Prioridad de seguridad en SOR**: Ante choque de cavitación (Mach $\ge 1.5$) o flujo tóxico informado (VPIN $\ge 0.70$), el router emite inmediatamente `EmergencyCancelAll`.
+- **Prioridad de seguridad en SOR**: Ante choque de cavitación (Mach $\ge 1.5$) o flujo tóxico informado (VPIN $\ge 0.75$), el router emite inmediatamente `EmergencyCancelAll`.
 - **Condición estricta de Breakout**: No se permite transición a `SuperconductingBreakout` si la coherencia cuántica es residual ($< 0.10$) o si el flujo es supersónico, evitando operaciones en caídas de cuchillo (falling knives).
+- **Ejecución Directa en CoherentCondensate**: Las acumulaciones institucionales detectadas bajo flujo laminar se enrutan como `AggressiveTaker` para capturar el punto de inflexión sin dejar órdenes pasivas colgadas en el libro.
 
 ## 6. Cómo verificar
 ```bash

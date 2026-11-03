@@ -53,10 +53,128 @@ struct LiveBrokerPosition {
     qty: f64,
     notional: f64,
     entry_time: Instant,
+    highest_price: f64,
+    trailing_stop: f64,
+    profit_locked: bool,
+}
+
+/// Cancels all open resting orders atomically on Alpaca Paper REST API.
+async fn cancel_all_alpaca_orders(
+    client: &reqwest::Client,
+    auth: &BrokerAuth,
+) -> bool {
+    if matches!(auth, BrokerAuth::None) {
+        return false;
+    }
+    let mut req = client.delete("https://paper-api.alpaca.markets/v2/orders");
+    match auth {
+        BrokerAuth::OAuth(token) => {
+            req = req.header("Authorization", format!("Bearer {}", token));
+        }
+        BrokerAuth::KeySecret { key, secret } => {
+            req = req
+                .header("APCA-API-KEY-ID", key.as_str())
+                .header("APCA-API-SECRET-KEY", secret.as_str());
+        }
+        BrokerAuth::None => return false,
+    }
+    match req.send().await {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    }
+}
+
+/// Verifies whether the broker currently has any open order or position for this symbol.
+async fn has_open_orders_or_position(
+    client: &reqwest::Client,
+    auth: &BrokerAuth,
+    symbol: &str,
+) -> bool {
+    if matches!(auth, BrokerAuth::None) {
+        return false;
+    }
+    let clean_sym = symbol.replace('/', "");
+    let pos_url = format!("https://paper-api.alpaca.markets/v2/positions/{}", clean_sym);
+    let mut req_pos = client.get(&pos_url);
+
+    let ord_url = format!("https://paper-api.alpaca.markets/v2/orders?status=open&symbols={}", clean_sym);
+    let mut req_ord = client.get(&ord_url);
+
+    match auth {
+        BrokerAuth::OAuth(token) => {
+            req_pos = req_pos.header("Authorization", format!("Bearer {}", token));
+            req_ord = req_ord.header("Authorization", format!("Bearer {}", token));
+        }
+        BrokerAuth::KeySecret { key, secret } => {
+            req_pos = req_pos
+                .header("APCA-API-KEY-ID", key.as_str())
+                .header("APCA-API-SECRET-KEY", secret.as_str());
+            req_ord = req_ord
+                .header("APCA-API-KEY-ID", key.as_str())
+                .header("APCA-API-SECRET-KEY", secret.as_str());
+        }
+        BrokerAuth::None => return false,
+    }
+
+    if let Ok(resp) = req_pos.send().await {
+        if resp.status().is_success() {
+            return true;
+        }
+    }
+    if let Ok(resp) = req_ord.send().await {
+        if let Ok(orders) = resp.json::<serde_json::Value>().await {
+            if let Some(arr) = orders.as_array() {
+                if !arr.is_empty() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Verifies and fetches the exact position details (qty, avg_entry_price, market_value, side_buy) from Alpaca REST.
+async fn verify_and_fetch_single_position(
+    client: &reqwest::Client,
+    auth: &BrokerAuth,
+    symbol: &str,
+) -> Option<(f64, f64, f64, bool)> {
+    if matches!(auth, BrokerAuth::None) {
+        return None;
+    }
+    let clean_sym = symbol.replace('/', "");
+    let url = format!("https://paper-api.alpaca.markets/v2/positions/{}", clean_sym);
+    let mut req = client.get(&url);
+    match auth {
+        BrokerAuth::OAuth(token) => {
+            req = req.header("Authorization", format!("Bearer {}", token));
+        }
+        BrokerAuth::KeySecret { key, secret } => {
+            req = req
+                .header("APCA-API-KEY-ID", key.as_str())
+                .header("APCA-API-SECRET-KEY", secret.as_str());
+        }
+        BrokerAuth::None => return None,
+    }
+
+    if let Ok(resp) = req.send().await {
+        if resp.status().is_success() {
+            if let Ok(val) = resp.json::<serde_json::Value>().await {
+                let qty: f64 = val.get("qty").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0).abs();
+                let avg_entry: f64 = val.get("avg_entry_price").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                let mkt_val: f64 = val.get("market_value").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0).abs();
+                let side_buy = val.get("side").and_then(|v| v.as_str()).unwrap_or("long") != "short";
+                if qty > 0.0 && avg_entry > 0.0 {
+                    return Some((qty, avg_entry, mkt_val, side_buy));
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Closes 100% of an open position atomically on Alpaca Paper REST API.
-/// Uses DELETE /v2/positions/{symbol} to eliminate decimal rounding errors and 403 insufficient balance rejections.
+/// First cancels any open orders for this symbol, then uses DELETE /v2/positions/{symbol}.
 async fn close_alpaca_position(
     client: &reqwest::Client,
     auth: &BrokerAuth,
@@ -66,6 +184,24 @@ async fn close_alpaca_position(
         return false;
     }
     let clean_symbol = symbol.replace('/', "");
+
+    // 1. Defensively delete any open orders for this symbol first
+    let ord_url = format!("https://paper-api.alpaca.markets/v2/orders?symbols={}", clean_symbol);
+    let mut del_ord = client.delete(&ord_url);
+    match auth {
+        BrokerAuth::OAuth(token) => {
+            del_ord = del_ord.header("Authorization", format!("Bearer {}", token));
+        }
+        BrokerAuth::KeySecret { key, secret } => {
+            del_ord = del_ord
+                .header("APCA-API-KEY-ID", key.as_str())
+                .header("APCA-API-SECRET-KEY", secret.as_str());
+        }
+        BrokerAuth::None => return false,
+    }
+    let _ = del_ord.send().await;
+
+    // 2. Liquidate position
     let url = format!("https://paper-api.alpaca.markets/v2/positions/{}", clean_symbol);
     let mut req = client.delete(&url);
 
@@ -380,16 +516,25 @@ async fn fetch_alpaca_positions(
                         sym_raw.to_string()
                     };
 
-                    if qty > 0.0 && avg_entry > 0.0 {
+                    let abs_qty = qty.abs();
+                    if abs_qty > 0.0 && avg_entry > 0.0 {
+                        let trailing_stop = if side_buy {
+                            avg_entry * (1.0 - 0.0045)
+                        } else {
+                            avg_entry * (1.0 + 0.0045)
+                        };
                         positions.insert(
                             norm_sym.clone(),
                             LiveBrokerPosition {
                                 symbol: norm_sym,
                                 side_buy,
                                 entry_price: avg_entry,
-                                qty,
+                                qty: abs_qty,
                                 notional: mkt_val.abs(),
                                 entry_time: Instant::now(),
+                                highest_price: avg_entry,
+                                trailing_stop,
+                                profit_locked: false,
                             },
                         );
                     }
@@ -447,6 +592,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .pool_max_idle_per_host(10)
         .tcp_nodelay(true)
         .build()?;
+
+    // Purge any lingering open orders on startup for a 100% clean state
+    if !matches!(broker_auth, BrokerAuth::None) {
+        println!("[+] Purgando ordenes huerfanas previas en Alpaca...");
+        cancel_all_alpaca_orders(&http_client, &broker_auth).await;
+    }
 
     // Sync real account equity from Alpaca REST API
     let (initial_account_label, initial_equity, initial_buying_power) = if !matches!(broker_auth, BrokerAuth::None) {
@@ -683,12 +834,84 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sym, snap.mid_price, snap.micro_price, snap.normalized_entropy, snap.quantum_coherence, snap.vpin, snap.fluid_metrics.mach_number, snap.active_phase
             );
 
-            // A1. Position Monitoring for sym: Check Take-Profit, Stop-Loss, and Emergency Exit
-            let pos_opt_data = live_positions.get(&sym).map(|pos| {
-                (pos.side_buy, pos.entry_price, pos.qty, pos.notional)
-            });
+            // A1. Position Monitoring for sym: Check Dynamic Trailing Profit Lock, Decays, and Emergency Exit
+            let pos_eval = if let Some(pos) = live_positions.get_mut(&sym) {
+                let cur_price = snap.mid_price;
+                if pos.side_buy {
+                    if cur_price > pos.highest_price {
+                        pos.highest_price = cur_price;
+                    }
+                } else if cur_price < pos.highest_price || pos.highest_price == 0.0 {
+                    pos.highest_price = cur_price;
+                }
 
-            if let Some((pos_side_buy, pos_entry_price, _pos_qty, pos_notional)) = pos_opt_data {
+                let max_ret = if pos.side_buy {
+                    (pos.highest_price - pos.entry_price) / pos.entry_price.max(1.0)
+                } else {
+                    (pos.entry_price - pos.highest_price) / pos.entry_price.max(1.0)
+                };
+
+                // Dynamic Trailing Profit Lock:
+                // Tier 1: Once profit reaches +0.35% (+35 bps), lock stop at Break-Even +0.05% (+5 bps)
+                if max_ret >= 0.0035 && !pos.profit_locked {
+                    pos.profit_locked = true;
+                    let be_stop = if pos.side_buy {
+                        pos.entry_price * 1.0005
+                    } else {
+                        pos.entry_price * (1.0 - 0.0005)
+                    };
+                    if (pos.side_buy && be_stop > pos.trailing_stop) || (!pos.side_buy && be_stop < pos.trailing_stop) {
+                        pos.trailing_stop = be_stop;
+                        println!(
+                            " \x1b[1;32m[PROFIT LOCK ACTIVADO]\x1b[0m +{:.2}% alcanzado en {}. Stop bloqueado a Break-Even +5bps (${:.2}). ¡Trade blindado!",
+                            max_ret * 100.0, sym, pos.trailing_stop
+                        );
+                    }
+                }
+
+                // Tier 2: Once profit reaches +0.50% (+50 bps), lock stop at +0.25% (+25 bps)
+                if max_ret >= 0.0050 {
+                    let tier2_stop = if pos.side_buy {
+                        pos.entry_price * 1.0025
+                    } else {
+                        pos.entry_price * (1.0 - 0.0025)
+                    };
+                    if (pos.side_buy && tier2_stop > pos.trailing_stop) || (!pos.side_buy && tier2_stop < pos.trailing_stop) {
+                        pos.trailing_stop = tier2_stop;
+                        println!(
+                            " \x1b[1;32m[PROFIT LOCK +25bps]\x1b[0m +{:.2}% alcanzado en {}. Stop asegurado a +0.25% (${:.2}).",
+                            max_ret * 100.0, sym, pos.trailing_stop
+                        );
+                    }
+                }
+
+                // Tier 3: Dynamic ratchet trailing (trail by 20 bps from peak if peak >= +0.50%)
+                if max_ret >= 0.0050 {
+                    let ratchet = if pos.side_buy {
+                        pos.highest_price * (1.0 - 0.0020)
+                    } else {
+                        pos.highest_price * (1.0 + 0.0020)
+                    };
+                    if (pos.side_buy && ratchet > pos.trailing_stop) || (!pos.side_buy && ratchet < pos.trailing_stop) {
+                        pos.trailing_stop = ratchet;
+                    }
+                }
+
+                Some((
+                    pos.side_buy,
+                    pos.entry_price,
+                    pos.qty,
+                    pos.notional,
+                    pos.highest_price,
+                    pos.trailing_stop,
+                    pos.profit_locked,
+                    pos.entry_time.elapsed(),
+                ))
+            } else {
+                None
+            };
+
+            if let Some((pos_side_buy, pos_entry_price, _pos_qty, pos_notional, _pos_highest, pos_trailing_stop, pos_locked, pos_holding_time)) = pos_eval {
                 let best_bid = if snap.best_bid > 0.0 { snap.best_bid } else { snap.mid_price - (snap.mid_price * 0.0001).max(0.01) };
                 let best_ask = if snap.best_ask > 0.0 { snap.best_ask } else { snap.mid_price + (snap.mid_price * 0.0001).max(0.01) };
                 let sor_intent = SmartOrderRouter::route_intent(&snap, best_bid, best_ask, 1.0);
@@ -700,13 +923,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let return_frac = price_diff / pos_entry_price.max(1.0);
 
-                // Emergency Exit: SmartOrderRouter triggers EmergencyCancelAll on Cavitation shock (Mach >= 1.5) or Toxic flow (VPIN >= 0.70)
-                if let OrderIntent::EmergencyCancelAll { reason } = sor_intent {
+                // Exit evaluation:
+                // 1. Target Take-Profit (+0.80% gain)
+                let is_target_tp = return_frac >= 0.0080;
+
+                // 2. Trailing Stop Hit:
+                let is_stop_hit = if pos_side_buy {
+                    snap.mid_price <= pos_trailing_stop
+                } else {
+                    snap.mid_price >= pos_trailing_stop
+                };
+
+                // 3. Coherence Decay in Profit (capture +0.25% or more before decay):
+                let is_coherence_decay_tp = return_frac >= 0.0025 && snap.quantum_coherence < 0.15;
+
+                // 4. Time stop in Profit (> 15m holding and gain >= +0.10%):
+                let is_time_tp = pos_holding_time >= Duration::from_secs(900) && return_frac >= 0.0010;
+
+                // 5. Emergency Exit (Fluid cavitation or toxic flow):
+                let is_emergency = matches!(sor_intent, OrderIntent::EmergencyCancelAll { .. });
+
+                if is_emergency {
+                    let reason = match sor_intent {
+                        OrderIntent::EmergencyCancelAll { reason } => reason,
+                        _ => "Emergency retreat",
+                    };
                     if close_alpaca_position(&http_client, &broker_auth, &sym).await {
                         let pnl_usd = return_frac * pos_notional;
                         auditor.record_trade(pnl_usd, return_frac);
                         println!(
-                            " \x1b[1;31m[ALPACA EMERGENCY EXIT ({})]\x1b[0m Posicion liquidada en {}: {:.2}% | PnL: ${:.3} USD",
+                            " \x1b[1;31m[ALPACA EMERGENCY EXIT ({})]\x1b[0m Posicion liquidada en {}: {:.2}% | PnL: ${:.2} USD",
                             reason, sym, return_frac * 100.0, pnl_usd
                         );
                         live_positions.remove(&sym);
@@ -721,13 +967,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         });
                         if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
                     }
-                // 1. Take-Profit (+0.45% target gain, or +0.25% if coherence decays below 0.20)
-                } else if return_frac >= 0.0045 || (return_frac >= 0.0025 && snap.quantum_coherence < 0.20) {
+                } else if is_target_tp {
                     if close_alpaca_position(&http_client, &broker_auth, &sym).await {
                         let profit_usd = return_frac * pos_notional;
                         auditor.record_trade(profit_usd, return_frac);
                         println!(
-                            " \x1b[1;32m[ALPACA TAKE-PROFIT]\x1b[0m Posicion liquidada en {}: +{:.2}% | Ganancia: +${:.2} USD",
+                            " \x1b[1;32m[ALPACA TAKE-PROFIT +0.80%]\x1b[0m Posicion liquidada en {}: +{:.2}% | Ganancia: +${:.2} USD",
                             sym, return_frac * 100.0, profit_usd
                         );
                         live_positions.remove(&sym);
@@ -742,14 +987,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         });
                         if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
                     }
-                // 2. Stop-Loss (-0.20% hard risk cutoff)
-                } else if return_frac <= -0.0020 {
+                } else if is_coherence_decay_tp {
                     if close_alpaca_position(&http_client, &broker_auth, &sym).await {
-                        let loss_usd = return_frac * pos_notional;
-                        auditor.record_trade(loss_usd, return_frac);
+                        let profit_usd = return_frac * pos_notional;
+                        auditor.record_trade(profit_usd, return_frac);
                         println!(
-                            " \x1b[1;31m[ALPACA STOP-LOSS]\x1b[0m Riesgo cortado en {}: {:.2}% | Perdida: -${:.2} USD",
-                            sym, return_frac * 100.0, loss_usd.abs()
+                            " \x1b[1;32m[ALPACA COHERENCE DECAY TP]\x1b[0m Decaimiento de coherencia ({:.3}). Capturando +{:.2}% | Ganancia: +${:.2} USD en {}",
+                            snap.quantum_coherence, return_frac * 100.0, profit_usd, sym
                         );
                         live_positions.remove(&sym);
                         last_broker_close_time.insert(sym.clone(), Instant::now());
@@ -757,8 +1001,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             timestamp_str: format_now_hms(),
                             symbol: sym.clone(),
                             phase: format!("{:?}", snap.active_phase),
-                            intent: "STOP_LOSS".to_string(),
-                            message: format!("Stop-Loss ({:.2}%): pérdida -${:.2} USD", return_frac * 100.0, loss_usd.abs()),
+                            intent: "COHERENCE_TP".to_string(),
+                            message: format!("Coherence TP (+{:.2}%): ganancia +${:.2} USD", return_frac * 100.0, profit_usd),
+                            is_trade: true,
+                        });
+                        if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
+                    }
+                } else if is_time_tp {
+                    if close_alpaca_position(&http_client, &broker_auth, &sym).await {
+                        let profit_usd = return_frac * pos_notional;
+                        auditor.record_trade(profit_usd, return_frac);
+                        println!(
+                            " \x1b[1;32m[ALPACA TIME PROFIT EXIT]\x1b[0m Tiempo limite >15m alcanzado con ganancia (+{:.2}%). Ganancia: +${:.2} USD en {}",
+                            return_frac * 100.0, profit_usd, sym
+                        );
+                        live_positions.remove(&sym);
+                        last_broker_close_time.insert(sym.clone(), Instant::now());
+                        recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
+                            timestamp_str: format_now_hms(),
+                            symbol: sym.clone(),
+                            phase: format!("{:?}", snap.active_phase),
+                            intent: "TIME_EXIT".to_string(),
+                            message: format!("Time TP (+{:.2}%): ganancia +${:.2} USD", return_frac * 100.0, profit_usd),
+                            is_trade: true,
+                        });
+                        if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
+                    }
+                } else if is_stop_hit {
+                    if close_alpaca_position(&http_client, &broker_auth, &sym).await {
+                        let pnl_usd = return_frac * pos_notional;
+                        auditor.record_trade(pnl_usd, return_frac);
+                        let exit_type = if pos_locked { "PROFIT_LOCK_EXIT" } else { "STOP_LOSS" };
+                        let color = if return_frac >= 0.0 { "\x1b[1;32m" } else { "\x1b[1;31m" };
+                        println!(
+                            " {}[ALPACA {}]\x1b[0m Liquidada en {}: {:+.2}% (${:+.2} USD) | Stop: ${:.2}",
+                            color, exit_type, sym, return_frac * 100.0, pnl_usd, pos_trailing_stop
+                        );
+                        live_positions.remove(&sym);
+                        last_broker_close_time.insert(sym.clone(), Instant::now());
+                        recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
+                            timestamp_str: format_now_hms(),
+                            symbol: sym.clone(),
+                            phase: format!("{:?}", snap.active_phase),
+                            intent: exit_type.to_string(),
+                            message: format!("{}: {:+.2}% (${:+.2} USD)", exit_type, return_frac * 100.0, pnl_usd),
                             is_trade: true,
                         });
                         if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
@@ -767,23 +1053,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else if is_crypto || (sym != "SPY" && sym != "QQQ") {
                 // A2. No open position -> Evaluate Entry Criteria via 6-Stage Pre-Trade Pipeline
                 let is_market_open = market_open_flag.load(Ordering::Relaxed);
-                let can_enter = is_market_open && last_broker_close_time
-                    .get(&sym)
-                    .map(|t| t.elapsed() >= Duration::from_secs(45))
-                    .unwrap_or(true);
+                // Rule 1: Portfolio risk cap: max 2 concurrent positions
+                // Rule 2: Cooldown of 180 seconds (3 minutes) per symbol
+                let can_enter = is_market_open
+                    && live_positions.len() < 2
+                    && last_broker_close_time
+                        .get(&sym)
+                        .map(|t| t.elapsed() >= Duration::from_secs(180))
+                        .unwrap_or(true);
 
                 if can_enter {
                     let best_bid = if snap.best_bid > 0.0 { snap.best_bid } else { snap.mid_price - (snap.mid_price * 0.0001).max(0.01) };
                     let best_ask = if snap.best_ask > 0.0 { snap.best_ask } else { snap.mid_price + (snap.mid_price * 0.0001).max(0.01) };
-                    let kelly_f = auditor.kelly_leverage(snap.quantum_coherence).clamp(0.2, 3.0);
+                    let kelly_f = auditor.kelly_leverage(snap.quantum_coherence).clamp(0.2, 2.0);
                     let sor_intent = SmartOrderRouter::route_intent(&snap, best_bid, best_ask, kelly_f);
 
-                    let (is_signal, side, size_ratio, is_taker, maker_target_price) = match sor_intent {
+                    let (is_signal, side, size_ratio) = match sor_intent {
                         OrderIntent::AggressiveTaker { side, size_ratio, urgency: _ } => {
-                            (true, side, size_ratio, true, None)
+                            (true, side, size_ratio)
                         }
-                        OrderIntent::PassiveMaker { side, target_price, size_ratio } => {
-                            (true, side, size_ratio, false, Some(target_price))
+                        OrderIntent::PassiveMaker { side, target_price: _, size_ratio } => {
+                            (true, side, size_ratio)
                         }
                         OrderIntent::EmergencyCancelAll { reason } => {
                             signal_confirmations.remove(&sym);
@@ -793,39 +1083,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     sym, reason, snap.fluid_metrics.mach_number, snap.normalized_entropy
                                 );
                             }
-                            (false, Side::Buy, 0.0, false, None)
+                            (false, Side::Buy, 0.0)
                         }
                         OrderIntent::NeutralHold => {
-                            (false, Side::Buy, 0.0, false, None)
+                            (false, Side::Buy, 0.0)
                         }
                     };
 
-                    if is_signal {
+                    // RULE: Equities are strictly LONG-ONLY
+                    if !is_crypto && side == Side::Sell {
+                        // Shorting equities prohibited to protect win rate
+                    } else if is_signal {
                         let is_crypto_sym = sym.contains('/') || sym.contains("USD");
 
-                        // Filter 1: Spread Bid-Ask limit check (< 15 bps crypto, < 10 bps equities)
+                        // Filter 1: Spread Bid-Ask limit check (< 12 bps crypto, < 8 bps equities)
                         let spread_bps = if snap.mid_price > 0.0 {
                             ((best_ask - best_bid).max(0.0) / snap.mid_price) * 10_000.0
                         } else {
                             999.0
                         };
-                        let max_spread_bps = if is_crypto_sym { 15.0 } else { 10.0 };
+                        let max_spread_bps = if is_crypto_sym { 12.0 } else { 8.0 };
                         let pass_spread = spread_bps <= max_spread_bps;
 
-                        // Filter 2: Net Return covers fees + slippage (Target TP 45 bps - friction >= 8 bps margin)
-                        let roundtrip_friction = if is_taker {
-                            if snap.mid_price > 0.0 {
-                                ((best_ask - best_bid).max(0.0) / snap.mid_price) + if is_crypto_sym { 0.0020 } else { 0.0004 }
-                            } else {
-                                0.01
-                            }
+                        // Filter 2: Net Return covers fees + slippage (Target TP 80 bps - friction >= 12 bps margin)
+                        let roundtrip_friction = if snap.mid_price > 0.0 {
+                            ((best_ask - best_bid).max(0.0) / snap.mid_price) + if is_crypto_sym { 0.0020 } else { 0.0004 }
                         } else {
-                            // Passive maker pays no taker fee and captures part of spread
-                            if is_crypto_sym { 0.0010 } else { 0.0001 }
+                            0.01
                         };
-                        let expected_tp = 0.0045;
+                        let expected_tp = 0.0080;
                         let net_expected_return = expected_tp - roundtrip_friction;
-                        let pass_cost = net_expected_return >= 0.0008;
+                        let pass_cost = net_expected_return >= 0.0012;
 
                         // Filter 3: WebSocket data age / latency check (< configurable via MAX_LATENCY_MS, default 1500 ms)
                         let now_ns = std::time::SystemTime::now()
@@ -858,13 +1146,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         let is_confirmed = conf_entry.1 >= 2 || (snap.phase_confidence >= 0.65 && snap.quantum_coherence >= 0.08);
 
+                        // Macro alignment: Buy only when SPY/QQQ macro bias >= -0.05
                         let is_macro_aligned = if side == Side::Buy {
-                            current_market_bias >= -0.25
+                            current_market_bias >= -0.05
                         } else {
-                            current_market_bias <= 0.25
+                            current_market_bias <= 0.05
                         };
 
-                        // Filter 5: Daily Drawdown Circuit Breaker (< 2.0% max loss from daily start equity)
+                        // Daily Drawdown Circuit Breaker (< 2.0% max loss from daily start equity)
                         let daily_loss_pct = if daily_start_equity > 0.0 {
                             (daily_start_equity - auditor.current_equity) / daily_start_equity
                         } else {
@@ -872,110 +1161,90 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         };
                         let pass_drawdown = daily_loss_pct < 0.02;
 
-                        if !pass_spread {
-                            println!(
-                                " \x1b[1;33m[PRE-TRADE SPREAD]\x1b[0m Spread en {} ({:.1} bps > max {:.1} bps)",
-                                sym, spread_bps, max_spread_bps
-                            );
-                        }
-                        if !pass_cost {
-                            println!(
-                                " \x1b[1;33m[PRE-TRADE COSTE]\x1b[0m Margen insuficiente en {} ({:.1} bps < 8.0 bps)",
-                                sym, net_expected_return * 10_000.0
-                            );
-                        }
-                        if !pass_latency {
-                            println!(
-                                " \x1b[1;33m[PRE-TRADE LATENCIA]\x1b[0m Retraso WS en {} ({:.1} ms > max {:.1} ms)",
-                                sym, delay_ms, max_latency_ms
-                            );
-                        }
-                        if !pass_drawdown {
-                            println!(
-                                " \x1b[1;31m[CIRCUIT BREAKER ACTIVADO]\x1b[0m Drawdown diario ({:.2}%) >= 2.0%. Bloqueando entradas.",
-                                daily_loss_pct * 100.0
-                            );
-                        }
-
                         if pass_spread && pass_cost && pass_latency && pass_drawdown && is_confirmed && is_macro_aligned {
-                            signal_confirmations.remove(&sym);
-                            let side_buy = side == Side::Buy;
-                            let order_side_str = if side_buy { "buy" } else { "sell" };
+                            // Broker Guard: verify via REST API that symbol has NO open orders or positions
+                            if !has_open_orders_or_position(&http_client, &broker_auth, &sym).await {
+                                signal_confirmations.remove(&sym);
+                                let side_buy = side == Side::Buy;
+                                let order_side_str = if side_buy { "buy" } else { "sell" };
 
-                            // Risk Engine size calculation according to Stop-Loss (-0.20%) and Kelly leverage
-                            let live_eq = auditor.current_equity.max(1000.0);
-                            let base_notional = live_eq * 0.0075;
-                            let max_notional = live_eq * 0.015;
-                            let notional = (base_notional * kelly_f * size_ratio).min(max_notional).max(50.0);
-                            let notional = (notional * 100.0).round() / 100.0;
+                                // Conservative position sizing: cap at $1,000 / ~1% equity per position
+                                let live_eq = auditor.current_equity.max(1000.0);
+                                let base_notional = (live_eq * 0.010).clamp(300.0, 1000.0);
+                                let notional = (base_notional * kelly_f * size_ratio).min(1000.0).max(100.0);
+                                let notional = (notional * 100.0).round() / 100.0;
 
-                            let (qty, qty_log_str) = if is_crypto_sym {
-                                let raw = notional / snap.mid_price;
-                                let q = ((raw * 10_000_000.0).round() / 10_000_000.0).max(0.0000001);
-                                (q, format!("{:.6}", q))
-                            } else {
-                                // Equities: Whole integer shares for Alpaca bracket order compliance
-                                let shares = ((notional / snap.mid_price).round() as u64).max(1);
-                                (shares as f64, format!("{}", shares))
-                            };
-
-                            let limit_price_clamped = if is_taker {
-                                let slippage_bps = if is_crypto_sym { 0.0015 } else { 0.0008 };
-                                let lp = if side_buy {
-                                    best_ask * (1.0 + slippage_bps)
+                                let (qty, _qty_log_str) = if is_crypto_sym {
+                                    let raw = notional / snap.mid_price;
+                                    let q = ((raw * 10_000_000.0).round() / 10_000_000.0).max(0.0000001);
+                                    (q, format!("{:.6}", q))
                                 } else {
-                                    best_bid * (1.0 - slippage_bps)
+                                    // Equities: Whole integer shares
+                                    let shares = ((notional / snap.mid_price).round() as u64).max(1);
+                                    (shares as f64, format!("{}", shares))
                                 };
-                                (lp * 100.0).round() / 100.0
-                            } else {
-                                let lp = maker_target_price.unwrap_or(if side_buy { best_bid } else { best_ask });
-                                (lp * 100.0).round() / 100.0
-                            };
 
-                            let bracket_opt = if !is_crypto_sym {
-                                let tp = if side_buy { limit_price_clamped * 1.0045 } else { limit_price_clamped * (1.0 - 0.0045) };
-                                let sl = if side_buy { limit_price_clamped * (1.0 - 0.0020) } else { limit_price_clamped * 1.0020 };
-                                Some((((tp * 100.0).round() / 100.0), ((sl * 100.0).round() / 100.0)))
-                            } else {
-                                None
-                            };
+                                // Marketable limit price: best_ask * 1.0005 (5 bps slippage cap) for immediate taker fill
+                                let slippage_bps = if is_crypto_sym { 0.0010 } else { 0.0005 };
+                                let limit_price_clamped = if side_buy {
+                                    ((best_ask * (1.0 + slippage_bps) * 100.0).round() / 100.0).max(best_ask + 0.01)
+                                } else {
+                                    ((best_bid * (1.0 - slippage_bps) * 100.0).round() / 100.0).min(best_bid - 0.01)
+                                };
 
-                            let order_arg = (Some(qty), None);
-                            let intent_label = if is_taker { "TAKER" } else { "MAKER" };
+                                let order_arg = (Some(qty), None);
 
-                            if execute_alpaca_paper_order(
-                                &http_client,
-                                &broker_auth,
-                                &sym,
-                                order_side_str,
-                                order_arg,
-                                Some(limit_price_clamped),
-                                bracket_opt,
-                            ).await {
-                                println!(
-                                    " \x1b[1;36m[ALPACA ENTRADA {} ({})]\x1b[0m {} a ${:.2} (Limit: ${:.2}, qty: {}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
-                                    order_side_str.to_uppercase(), intent_label, sym, snap.mid_price, limit_price_clamped, qty_log_str, qty * snap.mid_price, kelly_f, snap.vpin, snap.quantum_coherence, snap.normalized_entropy
-                                );
-                                live_positions.insert(
-                                    sym.clone(),
-                                    LiveBrokerPosition {
-                                        symbol: sym.clone(),
-                                        side_buy,
-                                        entry_price: snap.mid_price,
-                                        qty,
-                                        notional: qty * snap.mid_price,
-                                        entry_time: Instant::now(),
-                                    },
-                                );
-                                recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
-                                    timestamp_str: format_now_hms(),
-                                    symbol: sym.clone(),
-                                    phase: format!("{:?}", snap.active_phase),
-                                    intent: format!("ENTRADA {} ({})", order_side_str.to_uppercase(), intent_label),
-                                    message: format!("Orden {} Limit: {} @ ${:.2} (Nocional: ${:.2}, Kelly: {:.2}x)", intent_label, qty_log_str, limit_price_clamped, qty * snap.mid_price, kelly_f),
-                                    is_trade: true,
-                                });
-                                if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
+                                if execute_alpaca_paper_order(
+                                    &http_client,
+                                    &broker_auth,
+                                    &sym,
+                                    order_side_str,
+                                    order_arg,
+                                    Some(limit_price_clamped),
+                                    None, // Direct supervisor management, no bracket order collisions
+                                ).await {
+                                    // Wait 250ms and verify fill directly on Alpaca REST API
+                                    tokio::time::sleep(Duration::from_millis(250)).await;
+                                    if let Some((real_qty, avg_entry, mkt_val, verified_side)) =
+                                        verify_and_fetch_single_position(&http_client, &broker_auth, &sym).await
+                                    {
+                                        println!(
+                                            " \x1b[1;36m[ALPACA FILLED]\x1b[0m {} {} shares @ ${:.2} (Nocional: ${:.2}) | Coher: {:.3} | S: {:.3}",
+                                            if verified_side { "LONG" } else { "SHORT" }, real_qty, avg_entry, mkt_val, snap.quantum_coherence, snap.normalized_entropy
+                                        );
+                                        let trailing_stop = if verified_side {
+                                            avg_entry * (1.0 - 0.0045)
+                                        } else {
+                                            avg_entry * (1.0 + 0.0045)
+                                        };
+                                        live_positions.insert(
+                                            sym.clone(),
+                                            LiveBrokerPosition {
+                                                symbol: sym.clone(),
+                                                side_buy: verified_side,
+                                                entry_price: avg_entry,
+                                                qty: real_qty,
+                                                notional: mkt_val,
+                                                entry_time: Instant::now(),
+                                                highest_price: avg_entry,
+                                                trailing_stop,
+                                                profit_locked: false,
+                                            },
+                                        );
+                                        recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
+                                            timestamp_str: format_now_hms(),
+                                            symbol: sym.clone(),
+                                            phase: format!("{:?}", snap.active_phase),
+                                            intent: "LONG_FILLED".to_string(),
+                                            message: format!("Compra ejecutada: {} @ ${:.2} (Nocional: ${:.2})", real_qty, avg_entry, mkt_val),
+                                            is_trade: true,
+                                        });
+                                        if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
+                                    } else {
+                                        // If order did not fill immediately, defensively purge all resting orders
+                                        let _ = cancel_all_alpaca_orders(&http_client, &broker_auth).await;
+                                    }
+                                }
                             }
                         }
                     }
@@ -1292,8 +1561,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             last_report_ticks = total_processed_ticks;
         }
 
-        // Periodic position reconciliation with broker (every 30s)
-        if last_reconcile_time.elapsed() >= Duration::from_secs(30) && !matches!(broker_auth, BrokerAuth::None) {
+        // Periodic position reconciliation with broker (every 20s) and open order purge
+        if last_reconcile_time.elapsed() >= Duration::from_secs(20) && !matches!(broker_auth, BrokerAuth::None) {
             last_reconcile_time = Instant::now();
             let current_broker_positions = fetch_alpaca_positions(&http_client, &broker_auth).await;
             live_positions.retain(|sym, _| {
@@ -1309,6 +1578,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             for (sym, pos) in current_broker_positions {
                 live_positions.entry(sym).or_insert(pos);
             }
+            // Defensively purge any dangling resting orders to prevent phantom accumulation
+            cancel_all_alpaca_orders(&http_client, &broker_auth).await;
         }
 
         interval.tick().await;
