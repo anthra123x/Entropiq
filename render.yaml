@@ -9,7 +9,9 @@ services:
       - key: PORT
         value: 10000
       - key: ALPACA_FEED
-        value: crypto
+        value: iex
+      - key: ALPACA_FORCE_EQUITIES
+        value: "1"
       - key: MAX_LATENCY_MS
-        value: 500
+        value: 1500
       # Configure ALPACA_ACCESS_TOKEN or ALPACA_API_KEY / ALPACA_API_SECRET in Render Dashboard Environment Secrets

@@ -185,8 +185,14 @@ impl QuantumMarketEngine {
         let spread_ticks = (quote.spread() / self.tracker.tick_size).max(1.0);
         let effective_mass = 1.0 + 3.0 * vpin + (spread_ticks - 1.0) * 0.25;
 
-        let t_ask = QuantumPotential::tunneling_probability(kinetic_energy, v_ask, width_ask, effective_mass);
-        let t_bid = QuantumPotential::tunneling_probability(kinetic_energy, v_bid, width_bid, effective_mass);
+        // Characteristic depth scale: normalizes asset-specific size units (e.g. 1 BTC vs 200 AAPL shares)
+        let depth_scale = v_ask.max(v_bid).max(1.0);
+        let norm_energy = kinetic_energy / depth_scale;
+        let norm_v_ask = v_ask / depth_scale;
+        let norm_v_bid = v_bid / depth_scale;
+
+        let t_ask = QuantumPotential::tunneling_probability(norm_energy, norm_v_ask, width_ask, effective_mass);
+        let t_bid = QuantumPotential::tunneling_probability(norm_energy, norm_v_bid, width_bid, effective_mass);
         let state_bias = t_ask - t_bid;
 
         // 3. Fluid dynamics & liquidity cavitation

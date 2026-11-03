@@ -58,16 +58,16 @@ impl SmartOrderRouter {
         // 3. SuperconductingBreakout Regime: Aggressive Taker
         // High tunneling probability through the barrier + strong directional state bias
         if snapshot.active_phase == MarketQuantumPhase::SuperconductingBreakout {
-            if snapshot.tunneling_prob_ask >= 0.75 && snapshot.state_bias > 0.15 {
-                let urgency = snapshot.tunneling_prob_ask;
+            if (snapshot.tunneling_prob_ask >= 0.45 || snapshot.state_bias > 0.08) && snapshot.tunneling_prob_ask >= snapshot.tunneling_prob_bid {
+                let urgency = snapshot.tunneling_prob_ask.max(0.60);
                 let size = (snapshot.phase_confidence * base_size_multiplier).clamp(0.1, 2.0);
                 return OrderIntent::AggressiveTaker {
                     side: Side::Buy,
                     size_ratio: size,
                     urgency,
                 };
-            } else if snapshot.tunneling_prob_bid >= 0.75 && snapshot.state_bias < -0.15 {
-                let urgency = snapshot.tunneling_prob_bid;
+            } else if (snapshot.tunneling_prob_bid >= 0.45 || snapshot.state_bias < -0.08) && snapshot.tunneling_prob_bid >= snapshot.tunneling_prob_ask {
+                let urgency = snapshot.tunneling_prob_bid.max(0.60);
                 let size = (snapshot.phase_confidence * base_size_multiplier).clamp(0.1, 2.0);
                 return OrderIntent::AggressiveTaker {
                     side: Side::Sell,
@@ -80,21 +80,21 @@ impl SmartOrderRouter {
         // 4. CoherentCondensate Regime: Passive Maker Spread Capture
         // Stealth accumulation detected (entropy collapse) and flow is laminar: post passive limit orders
         if snapshot.active_phase == MarketQuantumPhase::CoherentCondensate && !snapshot.is_toxic_flow {
-            if snapshot.state_bias > 0.10 && snapshot.tunneling_prob_ask < 0.60 {
+            if snapshot.state_bias > 0.03 || snapshot.ofi_acceleration > 0.005 {
                 // Skewed positive, but barrier holds: post at Best Bid or just above
                 let target_price = (best_bid + spread * 0.1).min(mid);
                 return OrderIntent::PassiveMaker {
                     side: Side::Buy,
                     target_price,
-                    size_ratio: base_size_multiplier.clamp(0.1, 1.0),
+                    size_ratio: base_size_multiplier.clamp(0.1, 1.2),
                 };
-            } else if snapshot.state_bias < -0.10 && snapshot.tunneling_prob_bid < 0.60 {
+            } else if snapshot.state_bias < -0.03 || snapshot.ofi_acceleration < -0.005 {
                 // Skewed negative, but barrier holds: post at Best Ask or just below
                 let target_price = (best_ask - spread * 0.1).max(mid);
                 return OrderIntent::PassiveMaker {
                     side: Side::Sell,
                     target_price,
-                    size_ratio: base_size_multiplier.clamp(0.1, 1.0),
+                    size_ratio: base_size_multiplier.clamp(0.1, 1.2),
                 };
             }
         }

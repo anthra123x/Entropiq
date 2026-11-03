@@ -49,18 +49,18 @@ impl PhaseClassifier {
             snapshot.ofi_acceleration <= 1e-6
         };
 
-        let has_macroscopic_coherence = snapshot.quantum_coherence >= 0.25;
-        let is_low_entropy = snapshot.normalized_entropy <= 0.82 && snapshot.entropy_production_rate <= 0.50;
+        let has_macroscopic_coherence = snapshot.quantum_coherence >= 0.20;
+        let is_low_entropy = snapshot.normalized_entropy <= 0.88 && snapshot.entropy_production_rate <= 0.50;
         let is_laminar_subsonic = snapshot.fluid_metrics.mach_number < 0.95;
         let is_pure_flow = !snapshot.is_toxic_flow && snapshot.vpin < 0.65;
 
-        if max_tunnel > 0.70
+        if max_tunnel > 0.45
             && has_macroscopic_coherence
             && is_low_entropy
             && is_laminar_subsonic
             && is_pure_flow
             && ofi_aligned
-            && snapshot.fluid_metrics.flow_velocity > 0.002
+            && snapshot.fluid_metrics.flow_velocity > 0.001
         {
             let conf = (max_tunnel * 0.6 + snapshot.quantum_coherence * 0.4).clamp(0.70, 0.99);
             return (MarketQuantumPhase::SuperconductingBreakout, conf);
@@ -69,13 +69,13 @@ impl PhaseClassifier {
         // 3. Phase 1: Coherent Condensate (Bose-Einstein Stealth Iceberg Accumulation)
         // Characterized by orderly laminar flow (Mach << 1.0), entropy collapse,
         // moderate-to-high coherence, and absence of toxic predatory flow.
-        if snapshot.quantum_coherence >= 0.18
-            && snapshot.normalized_entropy < 0.78
-            && snapshot.fluid_metrics.mach_number < 0.60
-            && snapshot.vpin < 0.60
+        if snapshot.quantum_coherence >= 0.15
+            && snapshot.normalized_entropy <= 0.88
+            && snapshot.fluid_metrics.mach_number < 0.80
+            && snapshot.vpin < 0.65
             && !snapshot.is_toxic_flow
         {
-            let conf = (1.0 - snapshot.normalized_entropy).clamp(0.55, 0.95);
+            let conf = (1.0 - snapshot.normalized_entropy * 0.5).clamp(0.55, 0.95);
             return (MarketQuantumPhase::CoherentCondensate, conf);
         }
 

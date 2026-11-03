@@ -225,11 +225,13 @@ impl MarketTracker {
         let dt_sec = ((quote.timestamp_ns.saturating_sub(prev_quote.timestamp_ns)) as f64) * 1e-9;
         let dt = dt_sec.max(1e-4);
 
-        let delta_price = quote.micro_price() - prev_quote.micro_price();
-        let velocity = delta_price / dt;
+        // Normalize velocity by tick size so physical units match barrier width in ticks
+        let delta_ticks = (quote.micro_price() - prev_quote.micro_price()) / self.tick_size.max(1e-4);
+        let velocity = delta_ticks / dt.max(0.01);
 
         let total_volume = (self.window_buy_volume + self.window_sell_volume).max(1.0);
-        0.5 * total_volume * velocity * velocity
+        let flow_impulse = self.ofi_acceleration.abs() * total_volume * 0.1;
+        0.5 * total_volume * velocity * velocity + flow_impulse
     }
 
     /// Barrier potential for a given target direction.

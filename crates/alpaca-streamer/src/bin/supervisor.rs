@@ -127,16 +127,18 @@ async fn execute_alpaca_paper_order(
     let is_crypto_sym = symbol.contains('/') || symbol.contains("USD");
     let payload = if let Some((tp, sl)) = bracket.filter(|_| !is_crypto_sym) {
         // Native Bracket Order for Equities (NYSE/NASDAQ/IEX)
+        // Alpaca strictly requires whole integer shares for bracket orders
         let qty = qty_or_notional.0.unwrap_or(1.0);
+        let qty_int = (qty.round() as u64).max(1);
         if let Some(lp) = limit_price {
             format!(
-                r#"{{"symbol":"{}","qty":"{:.2}","side":"{}","type":"limit","limit_price":"{:.2}","time_in_force":"day","order_class":"bracket","take_profit":{{"limit_price":"{:.2}"}},"stop_loss":{{"stop_price":"{:.2}"}}}}"#,
-                symbol, qty, side, lp, tp, sl
+                r#"{{"symbol":"{}","qty":"{}","side":"{}","type":"limit","limit_price":"{:.2}","time_in_force":"day","order_class":"bracket","take_profit":{{"limit_price":"{:.2}"}},"stop_loss":{{"stop_price":"{:.2}"}}}}"#,
+                symbol, qty_int, side, lp, tp, sl
             )
         } else {
             format!(
-                r#"{{"symbol":"{}","qty":"{:.2}","side":"{}","type":"market","time_in_force":"day","order_class":"bracket","take_profit":{{"limit_price":"{:.2}"}},"stop_loss":{{"stop_price":"{:.2}"}}}}"#,
-                symbol, qty, side, tp, sl
+                r#"{{"symbol":"{}","qty":"{}","side":"{}","type":"market","time_in_force":"day","order_class":"bracket","take_profit":{{"limit_price":"{:.2}"}},"stop_loss":{{"stop_price":"{:.2}"}}}}"#,
+                symbol, qty_int, side, tp, sl
             )
         }
     } else if let Some(lp) = limit_price {
@@ -776,172 +778,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let kelly_f = auditor.kelly_leverage(snap.quantum_coherence).clamp(0.2, 3.0);
                     let sor_intent = SmartOrderRouter::route_intent(&snap, best_bid, best_ask, kelly_f);
 
-                    match sor_intent {
+                    let (is_signal, side, size_ratio, is_taker, maker_target_price) = match sor_intent {
                         OrderIntent::AggressiveTaker { side, size_ratio, urgency: _ } => {
-                            let is_crypto_sym = sym.contains('/') || sym.contains("USD");
-
-                            // Filter 1: Spread Bid-Ask limit check (< 15 bps crypto, < 8 bps equities)
-                            let spread_bps = if snap.mid_price > 0.0 {
-                                ((best_ask - best_bid).max(0.0) / snap.mid_price) * 10_000.0
-                            } else {
-                                999.0
-                            };
-                            let max_spread_bps = if is_crypto_sym { 15.0 } else { 8.0 };
-                            let pass_spread = spread_bps <= max_spread_bps;
-
-                            // Filter 2: Net Return covers fees + slippage (Target TP 45 bps - roundtrip friction >= 10 bps margin)
-                            let roundtrip_friction = if snap.mid_price > 0.0 {
-                                ((best_ask - best_bid).max(0.0) / snap.mid_price) + if is_crypto_sym { 0.0020 } else { 0.0004 }
-                            } else {
-                                0.01
-                            };
-                            let expected_tp = 0.0045;
-                            let net_expected_return = expected_tp - roundtrip_friction;
-                            let pass_cost = net_expected_return >= 0.0010;
-
-                            // Filter 3: WebSocket data age / latency check (< 500 ms configurable via MAX_LATENCY_MS)
-                            let now_ns = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_nanos() as u64;
-                            let max_latency_ms: f64 = std::env::var("MAX_LATENCY_MS")
-                                .ok()
-                                .and_then(|s| s.parse().ok())
-                                .unwrap_or(500.0);
-                            let pass_latency = if max_latency_ms > 0.0 && snap.timestamp_ns > 0 {
-                                let delay_ms = (now_ns.saturating_sub(snap.timestamp_ns)) as f64 / 1_000_000.0;
-                                delay_ms <= max_latency_ms
-                            } else {
-                                true
-                            };
-
-                            if !pass_spread {
-                                println!(
-                                    " \x1b[1;33m[PRE-TRADE SPREAD]\x1b[0m Spread excesivo en {} ({:.1} bps > max {:.1} bps)",
-                                    sym, spread_bps, max_spread_bps
-                                );
-                            }
-                            if !pass_cost {
-                                println!(
-                                    " \x1b[1;33m[PRE-TRADE COSTE]\x1b[0m Margen de retorno insuficiente en {} ({:.1} bps < 10.0 bps margen tras costes)",
-                                    sym, net_expected_return * 10_000.0
-                                );
-                            }
-                            if !pass_latency {
-                                let delay_ms = (now_ns.saturating_sub(snap.timestamp_ns)) as f64 / 1_000_000.0;
-                                println!(
-                                    " \x1b[1;33m[PRE-TRADE LATENCIA]\x1b[0m Retraso WS en {} ({:.1} ms > max {:.1} ms)",
-                                    sym, delay_ms, max_latency_ms
-                                );
-                            }
-
-                            // Anti-whipsaw confirmation window: require 2 consecutive signals or strong conviction
-                            let conf_entry = signal_confirmations.entry(sym.clone()).or_insert((side, 0, Instant::now()));
-                            if conf_entry.0 == side && conf_entry.2.elapsed() < Duration::from_secs(5) {
-                                conf_entry.1 += 1;
-                                conf_entry.2 = Instant::now();
-                            } else {
-                                *conf_entry = (side, 1, Instant::now());
-                            }
-
-                            let is_confirmed = conf_entry.1 >= 2 || (snap.phase_confidence >= 0.88 && snap.quantum_coherence >= 0.38);
-
-                            let is_macro_aligned = if side == Side::Buy {
-                                current_market_bias >= -0.20
-                            } else {
-                                current_market_bias <= 0.20
-                            };
-
-                            // Filter 5: Daily Drawdown Circuit Breaker (< 2.0% max loss from daily start equity)
-                            let daily_loss_pct = if daily_start_equity > 0.0 {
-                                (daily_start_equity - auditor.current_equity) / daily_start_equity
-                            } else {
-                                0.0
-                            };
-                            let pass_drawdown = daily_loss_pct < 0.02;
-
-                            if !pass_drawdown {
-                                println!(
-                                    " \x1b[1;31m[CIRCUIT BREAKER ACTIVADO]\x1b[0m Drawdown diario ({:.2}%) >= 2.0%. Bloqueando nuevas entradas.",
-                                    daily_loss_pct * 100.0
-                                );
-                            }
-
-                            if pass_spread && pass_cost && pass_latency && pass_drawdown && is_confirmed && is_macro_aligned {
-                                signal_confirmations.remove(&sym);
-                                let side_buy = side == Side::Buy;
-                                let order_side_str = if side_buy { "buy" } else { "sell" };
-
-                                // Filter 4: Risk Engine size calculation according to Stop-Loss (-0.20%) and Kelly leverage
-                                let live_eq = auditor.current_equity.max(1000.0);
-                                let base_notional = live_eq * 0.0075;
-                                let max_notional = live_eq * 0.015;
-                                let notional = (base_notional * kelly_f * size_ratio).min(max_notional).max(50.0);
-                                let notional = (notional * 100.0).round() / 100.0;
-                                let qty = if is_crypto_sym {
-                                    let raw = notional / snap.mid_price;
-                                    ((raw * 10_000_000.0).round() / 10_000_000.0).max(0.0000001)
-                                } else {
-                                    let q = ((notional / snap.mid_price) * 100.0).round() / 100.0;
-                                    q.max(0.01)
-                                };
-
-                                // Aggressive Marketable Limit Order: Cross spread with slippage cap (15 bps crypto, 8 bps equities)
-                                let slippage_bps = if is_crypto_sym { 0.0015 } else { 0.0008 };
-                                let limit_price = if side_buy {
-                                    best_ask * (1.0 + slippage_bps)
-                                } else {
-                                    best_bid * (1.0 - slippage_bps)
-                                };
-                                let limit_price_clamped = (limit_price * 100.0).round() / 100.0;
-
-                                // Filter 6: Execution (Aggressive Limit Order with Slippage Cap)
-                                let bracket_opt = if !is_crypto_sym {
-                                    let tp = if side_buy { snap.mid_price * 1.0045 } else { snap.mid_price * (1.0 - 0.0045) };
-                                    let sl = if side_buy { snap.mid_price * (1.0 - 0.0020) } else { snap.mid_price * 1.0020 };
-                                    Some((((tp * 100.0).round() / 100.0), ((sl * 100.0).round() / 100.0)))
-                                } else {
-                                    None
-                                };
-
-                                // Limit orders on Alpaca require `qty`
-                                let order_arg = (Some(qty), None);
-
-                                if execute_alpaca_paper_order(
-                                    &http_client,
-                                    &broker_auth,
-                                    &sym,
-                                    order_side_str,
-                                    order_arg,
-                                    Some(limit_price_clamped),
-                                    bracket_opt,
-                                ).await {
-                                    println!(
-                                        " \x1b[1;36m[ALPACA ENTRADA {} (SOR: {:?})]\x1b[0m {} a ${:.2} (Limit: ${:.2}, qty: {:.6}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
-                                        order_side_str.to_uppercase(), snap.active_phase, sym, snap.mid_price, limit_price_clamped, qty, notional, kelly_f, snap.vpin, snap.quantum_coherence, snap.normalized_entropy
-                                    );
-                                    live_positions.insert(
-                                        sym.clone(),
-                                        LiveBrokerPosition {
-                                            symbol: sym.clone(),
-                                            side_buy,
-                                            entry_price: snap.mid_price,
-                                            qty,
-                                            notional,
-                                            entry_time: Instant::now(),
-                                        },
-                                    );
-                                    recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
-                                        timestamp_str: format_now_hms(),
-                                        symbol: sym.clone(),
-                                        phase: format!("{:?}", snap.active_phase),
-                                        intent: format!("ENTRADA {}", order_side_str.to_uppercase()),
-                                        message: format!("Orden Marketable Limit: {:.6} @ ${:.2} (Nocional: ${:.2}, Kelly: {:.2}x)", qty, limit_price_clamped, notional, kelly_f),
-                                        is_trade: true,
-                                    });
-                                    if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
-                                }
-                            }
+                            (true, side, size_ratio, true, None)
+                        }
+                        OrderIntent::PassiveMaker { side, target_price, size_ratio } => {
+                            (true, side, size_ratio, false, Some(target_price))
                         }
                         OrderIntent::EmergencyCancelAll { reason } => {
                             signal_confirmations.remove(&sym);
@@ -951,8 +793,191 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     sym, reason, snap.fluid_metrics.mach_number, snap.normalized_entropy
                                 );
                             }
+                            (false, Side::Buy, 0.0, false, None)
                         }
-                        _ => {}
+                        OrderIntent::NeutralHold => {
+                            (false, Side::Buy, 0.0, false, None)
+                        }
+                    };
+
+                    if is_signal {
+                        let is_crypto_sym = sym.contains('/') || sym.contains("USD");
+
+                        // Filter 1: Spread Bid-Ask limit check (< 15 bps crypto, < 10 bps equities)
+                        let spread_bps = if snap.mid_price > 0.0 {
+                            ((best_ask - best_bid).max(0.0) / snap.mid_price) * 10_000.0
+                        } else {
+                            999.0
+                        };
+                        let max_spread_bps = if is_crypto_sym { 15.0 } else { 10.0 };
+                        let pass_spread = spread_bps <= max_spread_bps;
+
+                        // Filter 2: Net Return covers fees + slippage (Target TP 45 bps - friction >= 8 bps margin)
+                        let roundtrip_friction = if is_taker {
+                            if snap.mid_price > 0.0 {
+                                ((best_ask - best_bid).max(0.0) / snap.mid_price) + if is_crypto_sym { 0.0020 } else { 0.0004 }
+                            } else {
+                                0.01
+                            }
+                        } else {
+                            // Passive maker pays no taker fee and captures part of spread
+                            if is_crypto_sym { 0.0010 } else { 0.0001 }
+                        };
+                        let expected_tp = 0.0045;
+                        let net_expected_return = expected_tp - roundtrip_friction;
+                        let pass_cost = net_expected_return >= 0.0008;
+
+                        // Filter 3: WebSocket data age / latency check (< configurable via MAX_LATENCY_MS, default 1500 ms)
+                        let now_ns = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_nanos() as u64;
+                        let max_latency_ms: f64 = std::env::var("MAX_LATENCY_MS")
+                            .ok()
+                            .and_then(|s| s.parse().ok())
+                            .unwrap_or(1500.0);
+                        let delay_ms = if snap.timestamp_ns > 0 {
+                            (now_ns.saturating_sub(snap.timestamp_ns)) as f64 / 1_000_000.0
+                        } else {
+                            0.0
+                        };
+                        let pass_latency = if max_latency_ms > 0.0 && snap.timestamp_ns > 0 {
+                            delay_ms <= max_latency_ms
+                        } else {
+                            true
+                        };
+
+                        // Anti-whipsaw confirmation window: require 2 consecutive signals or strong conviction
+                        let conf_entry = signal_confirmations.entry(sym.clone()).or_insert((side, 0, Instant::now()));
+                        if conf_entry.0 == side && conf_entry.2.elapsed() < Duration::from_secs(10) {
+                            conf_entry.1 += 1;
+                            conf_entry.2 = Instant::now();
+                        } else {
+                            *conf_entry = (side, 1, Instant::now());
+                        }
+
+                        let is_confirmed = conf_entry.1 >= 2 || (snap.phase_confidence >= 0.70 && snap.quantum_coherence >= 0.18);
+
+                        let is_macro_aligned = if side == Side::Buy {
+                            current_market_bias >= -0.25
+                        } else {
+                            current_market_bias <= 0.25
+                        };
+
+                        // Filter 5: Daily Drawdown Circuit Breaker (< 2.0% max loss from daily start equity)
+                        let daily_loss_pct = if daily_start_equity > 0.0 {
+                            (daily_start_equity - auditor.current_equity) / daily_start_equity
+                        } else {
+                            0.0
+                        };
+                        let pass_drawdown = daily_loss_pct < 0.02;
+
+                        if !pass_spread {
+                            println!(
+                                " \x1b[1;33m[PRE-TRADE SPREAD]\x1b[0m Spread en {} ({:.1} bps > max {:.1} bps)",
+                                sym, spread_bps, max_spread_bps
+                            );
+                        }
+                        if !pass_cost {
+                            println!(
+                                " \x1b[1;33m[PRE-TRADE COSTE]\x1b[0m Margen insuficiente en {} ({:.1} bps < 8.0 bps)",
+                                sym, net_expected_return * 10_000.0
+                            );
+                        }
+                        if !pass_latency {
+                            println!(
+                                " \x1b[1;33m[PRE-TRADE LATENCIA]\x1b[0m Retraso WS en {} ({:.1} ms > max {:.1} ms)",
+                                sym, delay_ms, max_latency_ms
+                            );
+                        }
+                        if !pass_drawdown {
+                            println!(
+                                " \x1b[1;31m[CIRCUIT BREAKER ACTIVADO]\x1b[0m Drawdown diario ({:.2}%) >= 2.0%. Bloqueando entradas.",
+                                daily_loss_pct * 100.0
+                            );
+                        }
+
+                        if pass_spread && pass_cost && pass_latency && pass_drawdown && is_confirmed && is_macro_aligned {
+                            signal_confirmations.remove(&sym);
+                            let side_buy = side == Side::Buy;
+                            let order_side_str = if side_buy { "buy" } else { "sell" };
+
+                            // Risk Engine size calculation according to Stop-Loss (-0.20%) and Kelly leverage
+                            let live_eq = auditor.current_equity.max(1000.0);
+                            let base_notional = live_eq * 0.0075;
+                            let max_notional = live_eq * 0.015;
+                            let notional = (base_notional * kelly_f * size_ratio).min(max_notional).max(50.0);
+                            let notional = (notional * 100.0).round() / 100.0;
+
+                            let (qty, qty_log_str) = if is_crypto_sym {
+                                let raw = notional / snap.mid_price;
+                                let q = ((raw * 10_000_000.0).round() / 10_000_000.0).max(0.0000001);
+                                (q, format!("{:.6}", q))
+                            } else {
+                                // Equities: Whole integer shares for Alpaca bracket order compliance
+                                let shares = ((notional / snap.mid_price).round() as u64).max(1);
+                                (shares as f64, format!("{}", shares))
+                            };
+
+                            let limit_price_clamped = if is_taker {
+                                let slippage_bps = if is_crypto_sym { 0.0015 } else { 0.0008 };
+                                let lp = if side_buy {
+                                    best_ask * (1.0 + slippage_bps)
+                                } else {
+                                    best_bid * (1.0 - slippage_bps)
+                                };
+                                (lp * 100.0).round() / 100.0
+                            } else {
+                                let lp = maker_target_price.unwrap_or(if side_buy { best_bid } else { best_ask });
+                                (lp * 100.0).round() / 100.0
+                            };
+
+                            let bracket_opt = if !is_crypto_sym {
+                                let tp = if side_buy { limit_price_clamped * 1.0045 } else { limit_price_clamped * (1.0 - 0.0045) };
+                                let sl = if side_buy { limit_price_clamped * (1.0 - 0.0020) } else { limit_price_clamped * 1.0020 };
+                                Some((((tp * 100.0).round() / 100.0), ((sl * 100.0).round() / 100.0)))
+                            } else {
+                                None
+                            };
+
+                            let order_arg = (Some(qty), None);
+                            let intent_label = if is_taker { "TAKER" } else { "MAKER" };
+
+                            if execute_alpaca_paper_order(
+                                &http_client,
+                                &broker_auth,
+                                &sym,
+                                order_side_str,
+                                order_arg,
+                                Some(limit_price_clamped),
+                                bracket_opt,
+                            ).await {
+                                println!(
+                                    " \x1b[1;36m[ALPACA ENTRADA {} ({})]\x1b[0m {} a ${:.2} (Limit: ${:.2}, qty: {}) | Notional: ${:.2} (Kelly: {:.2}x) | VPIN: {:.3} | Coher: {:.3} | S: {:.3}",
+                                    order_side_str.to_uppercase(), intent_label, sym, snap.mid_price, limit_price_clamped, qty_log_str, qty * snap.mid_price, kelly_f, snap.vpin, snap.quantum_coherence, snap.normalized_entropy
+                                );
+                                live_positions.insert(
+                                    sym.clone(),
+                                    LiveBrokerPosition {
+                                        symbol: sym.clone(),
+                                        side_buy,
+                                        entry_price: snap.mid_price,
+                                        qty,
+                                        notional: qty * snap.mid_price,
+                                        entry_time: Instant::now(),
+                                    },
+                                );
+                                recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
+                                    timestamp_str: format_now_hms(),
+                                    symbol: sym.clone(),
+                                    phase: format!("{:?}", snap.active_phase),
+                                    intent: format!("ENTRADA {} ({})", order_side_str.to_uppercase(), intent_label),
+                                    message: format!("Orden {} Limit: {} @ ${:.2} (Nocional: ${:.2}, Kelly: {:.2}x)", intent_label, qty_log_str, limit_price_clamped, qty * snap.mid_price, kelly_f),
+                                    is_trade: true,
+                                });
+                                if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
+                            }
+                        }
                     }
                 }
             }
