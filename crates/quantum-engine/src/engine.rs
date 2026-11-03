@@ -214,7 +214,7 @@ impl QuantumMarketEngine {
             total_depth,
             normalized_spread,
             normalized_price_delta,
-            dt_sec.max(0.005),
+            dt_sec.max(0.05),
         );
 
         // 4. Depth quantum walk wavepacket distribution & spatial variance
@@ -229,7 +229,7 @@ impl QuantumMarketEngine {
             variance += diff * diff * depth_probs[i];
         }
 
-        let is_toxic_flow = vpin >= 0.70;
+        let is_toxic_flow = vpin >= 0.82;
 
         let mut snapshot = QuantumAnalyticsSnapshot {
             timestamp_ns: quote.timestamp_ns,

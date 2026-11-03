@@ -47,11 +47,9 @@ impl MarketTracker {
         } else if valid_tick >= 0.05 {
             // Ethereum (ETH/USD): ~5.0 ETH per bucket (~$12,000 USD)
             5.0
-        } else if valid_tick >= 0.01 {
-            // Solana (SOL/USD) or stocks: ~50.0 units
-            50.0
         } else {
-            100.0
+            // Equities Wall Street / ETFs (SPY, AAPL, NVDA, TSLA, etc.): 1000 shares per bucket
+            1000.0
         };
 
         Self {
@@ -185,8 +183,8 @@ impl MarketTracker {
             if current_fill > 1e-6 {
                 let partial_imbalance = (self.current_bucket_buy - self.current_bucket_sell).abs();
                 let partial_vpin = partial_imbalance / current_fill;
-                let weight = (current_fill / self.bucket_volume_target).min(1.0);
-                self.vpin = (0.25 * (1.0 - weight) + (partial_vpin * 0.5) * weight).clamp(0.0, 1.0);
+                let weight = (current_fill / (self.bucket_volume_target * 2.0)).min(1.0);
+                self.vpin = (0.25 * (1.0 - weight) + (partial_vpin * 0.4) * weight).clamp(0.0, 1.0);
             } else {
                 self.vpin = 0.25;
             }

@@ -856,7 +856,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             *conf_entry = (side, 1, Instant::now());
                         }
 
-                        let is_confirmed = conf_entry.1 >= 2 || (snap.phase_confidence >= 0.70 && snap.quantum_coherence >= 0.18);
+                        let is_confirmed = conf_entry.1 >= 2 || (snap.phase_confidence >= 0.65 && snap.quantum_coherence >= 0.08);
 
                         let is_macro_aligned = if side == Side::Buy {
                             current_market_bias >= -0.25

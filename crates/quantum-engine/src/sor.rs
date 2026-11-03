@@ -45,10 +45,10 @@ impl SmartOrderRouter {
             };
         }
 
-        // 2. Safety Filter: High adverse selection / toxic flow (healthy threshold: 0.70)
-        if snapshot.vpin >= 0.70 {
+        // 2. Safety Filter: High adverse selection / toxic flow (healthy threshold: 0.75)
+        if snapshot.vpin >= 0.75 {
             return OrderIntent::EmergencyCancelAll {
-                reason: "Toxic flow detected (VPIN >= 0.70)",
+                reason: "Toxic flow detected (VPIN >= 0.75)",
             };
         }
 

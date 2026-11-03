@@ -49,10 +49,10 @@ impl PhaseClassifier {
             snapshot.ofi_acceleration <= 1e-6
         };
 
-        let has_macroscopic_coherence = snapshot.quantum_coherence >= 0.20;
-        let is_low_entropy = snapshot.normalized_entropy <= 0.88 && snapshot.entropy_production_rate <= 0.50;
-        let is_laminar_subsonic = snapshot.fluid_metrics.mach_number < 0.95;
-        let is_pure_flow = !snapshot.is_toxic_flow && snapshot.vpin < 0.65;
+        let has_macroscopic_coherence = snapshot.quantum_coherence >= 0.12;
+        let is_low_entropy = snapshot.normalized_entropy <= 0.92 && snapshot.entropy_production_rate <= 0.50;
+        let is_laminar_subsonic = snapshot.fluid_metrics.mach_number < 1.0;
+        let is_pure_flow = !snapshot.is_toxic_flow && snapshot.vpin < 0.70;
 
         if max_tunnel > 0.45
             && has_macroscopic_coherence
@@ -69,10 +69,10 @@ impl PhaseClassifier {
         // 3. Phase 1: Coherent Condensate (Bose-Einstein Stealth Iceberg Accumulation)
         // Characterized by orderly laminar flow (Mach << 1.0), entropy collapse,
         // moderate-to-high coherence, and absence of toxic predatory flow.
-        if snapshot.quantum_coherence >= 0.15
-            && snapshot.normalized_entropy <= 0.88
+        if snapshot.quantum_coherence >= 0.08
+            && snapshot.normalized_entropy <= 0.92
             && snapshot.fluid_metrics.mach_number < 0.80
-            && snapshot.vpin < 0.65
+            && snapshot.vpin < 0.70
             && !snapshot.is_toxic_flow
         {
             let conf = (1.0 - snapshot.normalized_entropy * 0.5).clamp(0.55, 0.95);
