@@ -16,6 +16,16 @@ The computational core executes with zero dynamic heap allocations on the critic
 
 ## Architecture
 
+### Mapa de módulos
+
+| Módulo | Ruta | Responsabilidad | README |
+| :--- | :--- | :--- | :--- |
+| `quantum-core` | `crates/quantum-core` | Núcleo matemático, álgebra de matrices complejas, Lindblad RK4, CTQW y efecto túnel | [README](crates/quantum-core/README.md) |
+| `market-microstructure` | `crates/market-microstructure` | L1/L2 Order Book, Order Flow Imbalance (OFI), VPIN e hidrodinámica de liquidez | [README](crates/market-microstructure/README.md) |
+| `quantum-engine` | `crates/quantum-engine` | Motor unificado de análisis cuántico, clasificador de fases, SOR y auditor Half-Kelly | [README](crates/quantum-engine/README.md) |
+| `market-simulator` | `crates/market-simulator` | Simulación estocástica por regímenes, cola FIFO y serialización binaria ultrarrápida | [README](crates/market-simulator/README.md) |
+| `alpaca-streamer` | `crates/alpaca-streamer` | Conectividad WebSocket Alpaca v2, supervisor de producción, afinidad HFT y dashboard | [README](crates/alpaca-streamer/README.md) |
+
 The framework is organized as a decoupled Cargo workspace:
 
 ```
