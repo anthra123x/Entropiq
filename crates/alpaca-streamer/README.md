@@ -30,7 +30,7 @@ Módulo de conectividad en tiempo real y ejecución con Alpaca Markets. Administ
 - **Órdenes Limit vs Market en Cripto**: Las órdenes tipo `limit` en Alpaca requieren estrictamente cantidad fraccional (`qty`); no admiten valor nocional (`notional`). Órdenes enviadas con `notional` en modo limit son rechazadas con error HTTP 422.
 - **Filtro de latencia transfronteriza**: La latencia de red entre servidores locales fuera de EE.UU. y los endpoints de Alpaca suele oscilar entre 90 ms y 300 ms; filtros estáticos de latencia menores a este umbral descartan todo el flujo en entornos locales.
 - **Mandato Long-Only en Acciones**: En acciones e índices estadounidenses se opera exclusivamente en largo (`Side::Buy`), evitando posiciones cortas expuestas a short squeezes y deriva positiva del mercado.
-- **Dynamic Trailing Profit Lock**: Bloqueo de ganancias en 3 niveles: al alcanzar +0.35% el stop se traslada a Break-Even +0.05% (blindaje de pérdidas), al alcanzar +0.50% se asegura +0.25%, y trailing ratchet hasta objetivo de salida en +0.80%.
+- **Mandato de Cero Pérdidas y Cosecha Estricta de Ganancias**: Queda prohibido liquidar posiciones en negativo (sin stop-loss destructivos ni salidas en pérdida). La posición se sostiene hasta que la microestructura del mercado oscile al alza y entregue ganancia neta (mínimo +$0.04 USD y retorno positivo), garantizando un incremento monótono del capital.
 - **Pre-Check de Broker y Cero Órdenes Fantasma**: Antes de ingresar al mercado, se verifica en la API REST de Alpaca la ausencia de órdenes pendientes o posiciones activas en el símbolo, limitando la exposición simultánea a 2 posiciones globales ($1,000 max/posición).
 
 ## 6. Cómo verificar

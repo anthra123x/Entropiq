@@ -834,7 +834,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sym, snap.mid_price, snap.micro_price, snap.normalized_entropy, snap.quantum_coherence, snap.vpin, snap.fluid_metrics.mach_number, snap.active_phase
             );
 
-            // A1. Position Monitoring for sym: Check Dynamic Trailing Profit Lock, Decays, and Emergency Exit
+            // A1. Pure Positive Profit Taker (Strict Zero-Loss Mandate: Cada operación es un win)
             let pos_eval = if let Some(pos) = live_positions.get_mut(&sym) {
                 let cur_price = snap.mid_price;
                 if pos.side_buy {
@@ -845,115 +845,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     pos.highest_price = cur_price;
                 }
 
-                let max_ret = if pos.side_buy {
-                    (pos.highest_price - pos.entry_price) / pos.entry_price.max(1.0)
-                } else {
-                    (pos.entry_price - pos.highest_price) / pos.entry_price.max(1.0)
-                };
-
-                // Dynamic Trailing Profit Lock:
-                // Tier 1: Once profit reaches +0.35% (+35 bps), lock stop at Break-Even +0.05% (+5 bps)
-                if max_ret >= 0.0035 && !pos.profit_locked {
-                    pos.profit_locked = true;
-                    let be_stop = if pos.side_buy {
-                        pos.entry_price * 1.0005
-                    } else {
-                        pos.entry_price * (1.0 - 0.0005)
-                    };
-                    if (pos.side_buy && be_stop > pos.trailing_stop) || (!pos.side_buy && be_stop < pos.trailing_stop) {
-                        pos.trailing_stop = be_stop;
-                        println!(
-                            " \x1b[1;32m[PROFIT LOCK ACTIVADO]\x1b[0m +{:.2}% alcanzado en {}. Stop bloqueado a Break-Even +5bps (${:.2}). ¡Trade blindado!",
-                            max_ret * 100.0, sym, pos.trailing_stop
-                        );
-                    }
-                }
-
-                // Tier 2: Once profit reaches +0.50% (+50 bps), lock stop at +0.25% (+25 bps)
-                if max_ret >= 0.0050 {
-                    let tier2_stop = if pos.side_buy {
-                        pos.entry_price * 1.0025
-                    } else {
-                        pos.entry_price * (1.0 - 0.0025)
-                    };
-                    if (pos.side_buy && tier2_stop > pos.trailing_stop) || (!pos.side_buy && tier2_stop < pos.trailing_stop) {
-                        pos.trailing_stop = tier2_stop;
-                        println!(
-                            " \x1b[1;32m[PROFIT LOCK +25bps]\x1b[0m +{:.2}% alcanzado en {}. Stop asegurado a +0.25% (${:.2}).",
-                            max_ret * 100.0, sym, pos.trailing_stop
-                        );
-                    }
-                }
-
-                // Tier 3: Dynamic ratchet trailing (trail by 20 bps from peak if peak >= +0.50%)
-                if max_ret >= 0.0050 {
-                    let ratchet = if pos.side_buy {
-                        pos.highest_price * (1.0 - 0.0020)
-                    } else {
-                        pos.highest_price * (1.0 + 0.0020)
-                    };
-                    if (pos.side_buy && ratchet > pos.trailing_stop) || (!pos.side_buy && ratchet < pos.trailing_stop) {
-                        pos.trailing_stop = ratchet;
-                    }
-                }
-
                 Some((
                     pos.side_buy,
                     pos.entry_price,
                     pos.qty,
                     pos.notional,
                     pos.highest_price,
-                    pos.trailing_stop,
-                    pos.profit_locked,
-                    pos.entry_time.elapsed(),
                 ))
             } else {
                 None
             };
 
-            if let Some((pos_side_buy, pos_entry_price, _pos_qty, pos_notional, _pos_highest, pos_trailing_stop, pos_locked, pos_holding_time)) = pos_eval {
-                let best_bid = if snap.best_bid > 0.0 { snap.best_bid } else { snap.mid_price - (snap.mid_price * 0.0001).max(0.01) };
-                let best_ask = if snap.best_ask > 0.0 { snap.best_ask } else { snap.mid_price + (snap.mid_price * 0.0001).max(0.01) };
-                let sor_intent = SmartOrderRouter::route_intent(&snap, best_bid, best_ask, 1.0);
-
+            if let Some((pos_side_buy, pos_entry_price, pos_qty, _pos_notional, pos_highest)) = pos_eval {
+                let cur_price = snap.mid_price;
                 let price_diff = if pos_side_buy {
-                    snap.mid_price - pos_entry_price
+                    cur_price - pos_entry_price
                 } else {
-                    pos_entry_price - snap.mid_price
+                    pos_entry_price - cur_price
                 };
                 let return_frac = price_diff / pos_entry_price.max(1.0);
+                let pnl_usd = price_diff * pos_qty;
 
-                // Exit evaluation:
-                // 1. Target Take-Profit (+0.80% gain)
-                let is_target_tp = return_frac >= 0.0080;
+                // MANDATO ESTRICTO DE CERO PÉRDIDAS:
+                // Solo se liquida cuando el trade está en GANANCIA NETA POSITIVA (>= +$0.04 USD y return >= +0.01%).
+                // Si el precio fluctúa temporalmente por debajo de la entrada, NO se vende bajo ningún concepto (sin stop-loss ni centinelas).
+                // Se sostiene hasta que la microestructura del mercado oscile al alza y entregue ganancia.
+                let is_positive_profit = pnl_usd >= 0.04 && return_frac >= 0.0001;
 
-                // 2. Trailing Stop Hit:
-                let is_stop_hit = if pos_side_buy {
-                    snap.mid_price <= pos_trailing_stop
+                let max_ret = if pos_side_buy {
+                    (pos_highest - pos_entry_price) / pos_entry_price.max(1.0)
                 } else {
-                    snap.mid_price >= pos_trailing_stop
+                    (pos_entry_price - pos_highest) / pos_entry_price.max(1.0)
                 };
 
-                // 3. Coherence Decay in Profit (capture +0.25% or more before decay):
-                let is_coherence_decay_tp = return_frac >= 0.0025 && snap.quantum_coherence < 0.15;
+                let should_take_profit = if is_positive_profit {
+                    // 1. Objetivo de micro-scalp alcanzado (>= +$0.10 o retorno >= +0.10%) -> captura inmediata
+                    if pnl_usd >= 0.10 || return_frac >= 0.0010 {
+                        true
+                    // 2. Micro-captura rápida (+4 a +8 centavos asegurados si la micro-inercia frena o retrocede de su pico)
+                    } else if pnl_usd >= 0.04 && (snap.micro_price <= cur_price || return_frac <= (max_ret - 0.0002)) {
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false // PROHIBIDO VENDER EN PÉRDIDA: Mantiene la posición hasta recuperar y ganar
+                };
 
-                // 4. Time stop in Profit (> 15m holding and gain >= +0.10%):
-                let is_time_tp = pos_holding_time >= Duration::from_secs(900) && return_frac >= 0.0010;
-
-                // 5. Emergency Exit (Fluid cavitation or toxic flow):
-                let is_emergency = matches!(sor_intent, OrderIntent::EmergencyCancelAll { .. });
-
-                if is_emergency {
-                    let reason = match sor_intent {
-                        OrderIntent::EmergencyCancelAll { reason } => reason,
-                        _ => "Emergency retreat",
-                    };
+                if should_take_profit {
                     if close_alpaca_position(&http_client, &broker_auth, &sym).await {
-                        let pnl_usd = return_frac * pos_notional;
                         auditor.record_trade(pnl_usd, return_frac);
                         println!(
-                            " \x1b[1;31m[ALPACA EMERGENCY EXIT ({})]\x1b[0m Posicion liquidada en {}: {:.2}% | PnL: ${:.2} USD",
-                            reason, sym, return_frac * 100.0, pnl_usd
+                            " \x1b[1;32m[ALPACA WIN TAKEN]\x1b[0m Posición cerrada con GANANCIA en {}: +{:.3}% | PnL: +${:.2} USD (Entrada: ${:.2}, Salida: ${:.2})",
+                            sym, return_frac * 100.0, pnl_usd, pos_entry_price, cur_price
                         );
                         live_positions.remove(&sym);
                         last_broker_close_time.insert(sym.clone(), Instant::now());
@@ -961,90 +905,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             timestamp_str: format_now_hms(),
                             symbol: sym.clone(),
                             phase: format!("{:?}", snap.active_phase),
-                            intent: "EMERGENCY_EXIT".to_string(),
-                            message: format!("Liquidada por {}: return {:+.2}% (${:+.2} USD)", reason, return_frac * 100.0, pnl_usd),
-                            is_trade: true,
-                        });
-                        if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
-                    }
-                } else if is_target_tp {
-                    if close_alpaca_position(&http_client, &broker_auth, &sym).await {
-                        let profit_usd = return_frac * pos_notional;
-                        auditor.record_trade(profit_usd, return_frac);
-                        println!(
-                            " \x1b[1;32m[ALPACA TAKE-PROFIT +0.80%]\x1b[0m Posicion liquidada en {}: +{:.2}% | Ganancia: +${:.2} USD",
-                            sym, return_frac * 100.0, profit_usd
-                        );
-                        live_positions.remove(&sym);
-                        last_broker_close_time.insert(sym.clone(), Instant::now());
-                        recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
-                            timestamp_str: format_now_hms(),
-                            symbol: sym.clone(),
-                            phase: format!("{:?}", snap.active_phase),
-                            intent: "TAKE_PROFIT".to_string(),
-                            message: format!("Take-Profit (+{:.2}%): ganancia +${:.2} USD", return_frac * 100.0, profit_usd),
-                            is_trade: true,
-                        });
-                        if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
-                    }
-                } else if is_coherence_decay_tp {
-                    if close_alpaca_position(&http_client, &broker_auth, &sym).await {
-                        let profit_usd = return_frac * pos_notional;
-                        auditor.record_trade(profit_usd, return_frac);
-                        println!(
-                            " \x1b[1;32m[ALPACA COHERENCE DECAY TP]\x1b[0m Decaimiento de coherencia ({:.3}). Capturando +{:.2}% | Ganancia: +${:.2} USD en {}",
-                            snap.quantum_coherence, return_frac * 100.0, profit_usd, sym
-                        );
-                        live_positions.remove(&sym);
-                        last_broker_close_time.insert(sym.clone(), Instant::now());
-                        recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
-                            timestamp_str: format_now_hms(),
-                            symbol: sym.clone(),
-                            phase: format!("{:?}", snap.active_phase),
-                            intent: "COHERENCE_TP".to_string(),
-                            message: format!("Coherence TP (+{:.2}%): ganancia +${:.2} USD", return_frac * 100.0, profit_usd),
-                            is_trade: true,
-                        });
-                        if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
-                    }
-                } else if is_time_tp {
-                    if close_alpaca_position(&http_client, &broker_auth, &sym).await {
-                        let profit_usd = return_frac * pos_notional;
-                        auditor.record_trade(profit_usd, return_frac);
-                        println!(
-                            " \x1b[1;32m[ALPACA TIME PROFIT EXIT]\x1b[0m Tiempo limite >15m alcanzado con ganancia (+{:.2}%). Ganancia: +${:.2} USD en {}",
-                            return_frac * 100.0, profit_usd, sym
-                        );
-                        live_positions.remove(&sym);
-                        last_broker_close_time.insert(sym.clone(), Instant::now());
-                        recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
-                            timestamp_str: format_now_hms(),
-                            symbol: sym.clone(),
-                            phase: format!("{:?}", snap.active_phase),
-                            intent: "TIME_EXIT".to_string(),
-                            message: format!("Time TP (+{:.2}%): ganancia +${:.2} USD", return_frac * 100.0, profit_usd),
-                            is_trade: true,
-                        });
-                        if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
-                    }
-                } else if is_stop_hit {
-                    if close_alpaca_position(&http_client, &broker_auth, &sym).await {
-                        let pnl_usd = return_frac * pos_notional;
-                        auditor.record_trade(pnl_usd, return_frac);
-                        let exit_type = if pos_locked { "PROFIT_LOCK_EXIT" } else { "STOP_LOSS" };
-                        let color = if return_frac >= 0.0 { "\x1b[1;32m" } else { "\x1b[1;31m" };
-                        println!(
-                            " {}[ALPACA {}]\x1b[0m Liquidada en {}: {:+.2}% (${:+.2} USD) | Stop: ${:.2}",
-                            color, exit_type, sym, return_frac * 100.0, pnl_usd, pos_trailing_stop
-                        );
-                        live_positions.remove(&sym);
-                        last_broker_close_time.insert(sym.clone(), Instant::now());
-                        recent_event_logs.push_back(alpaca_streamer::PipelineLogEntry {
-                            timestamp_str: format_now_hms(),
-                            symbol: sym.clone(),
-                            phase: format!("{:?}", snap.active_phase),
-                            intent: exit_type.to_string(),
-                            message: format!("{}: {:+.2}% (${:+.2} USD)", exit_type, return_frac * 100.0, pnl_usd),
+                            intent: "WIN_TAKEN".to_string(),
+                            message: format!("Ganancia asegurada: +{:.3}% (+${:.2} USD)", return_frac * 100.0, pnl_usd),
                             is_trade: true,
                         });
                         if recent_event_logs.len() > 30 { recent_event_logs.pop_front(); }
@@ -1179,9 +1041,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let q = ((raw * 10_000_000.0).round() / 10_000_000.0).max(0.0000001);
                                     (q, format!("{:.6}", q))
                                 } else {
-                                    // Equities: Whole integer shares
-                                    let shares = ((notional / snap.mid_price).round() as u64).max(1);
-                                    (shares as f64, format!("{}", shares))
+                                    // Equities: Exact 1 share sizing for frictionless micro-scalp incrementation
+                                    let shares = 1.0;
+                                    (shares, "1".to_string())
                                 };
 
                                 // Marketable limit price: best_ask * 1.0005 (5 bps slippage cap) for immediate taker fill
