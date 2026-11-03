@@ -129,11 +129,11 @@ impl Default for WebDashboardState {
             vpin: 0.0,
             toxic_flow: false,
             lead_lag_spy_bias: 0.0,
-            market_open: false,
+            market_open: true,
             feed: "crypto".to_string(),
-            broker_account: "Sincronizando Alpaca...".to_string(),
-            buying_power: 100_000.0,
-            current_equity: 100_000.0,
+            broker_account: "PA3NGD2B8 (Paper)".to_string(),
+            buying_power: 0.0,
+            current_equity: 0.0,
             sharpe_ratio: 0.0,
             win_rate: 0.0,
             kelly_leverage: 1.0,
@@ -203,7 +203,8 @@ pub async fn start_web_server(state: Arc<RwLock<WebDashboardState>>, port: u16) 
     }
 }
 
-/// Generates the futuristic Neural Network Quantum Pipeline Dashboard.
+/// Generates the futuristic, ultra-modern Neural Network Quantum Pipeline Dashboard.
+/// Strictly fitted to 100vh without vertical scrolling, with clean typography and zero visual clutter.
 pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     let initial_json = serde_json::to_string(initial_state).unwrap_or_else(|_| "{}".to_string());
 
@@ -211,678 +212,896 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Entropiq — Quantum Neural Microstructure Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {{
-      --bg: #070b13;
-      --card-bg: rgba(14, 21, 37, 0.75);
-      --card-border: rgba(255, 255, 255, 0.08);
-      --cyan: #00f0ff;
-      --cyan-glow: rgba(0, 240, 255, 0.35);
+      --bg: #07090e;
+      --card-bg: rgba(13, 18, 30, 0.72);
+      --card-border: rgba(255, 255, 255, 0.07);
+      --cyan: #00f2fe;
+      --cyan-glow: rgba(0, 242, 254, 0.35);
       --emerald: #10b981;
       --emerald-glow: rgba(16, 185, 129, 0.35);
-      --purple: #8b5cf6;
-      --purple-glow: rgba(139, 92, 246, 0.35);
-      --amber: #f59e0b;
-      --amber-glow: rgba(245, 158, 11, 0.35);
+      --purple: #818cf8;
+      --purple-glow: rgba(129, 140, 248, 0.35);
+      --amber: #fbbf24;
+      --amber-glow: rgba(251, 191, 36, 0.35);
       --rose: #f43f5e;
-      --text: #f8fafc;
+      --text: #f1f5f9;
       --muted: #94a3b8;
       --subtle: #475569;
     }}
 
-    * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: ui-monospace, SFMono-Regular, "Geist Mono", "Roboto Mono", Menlo, monospace; }}
-    body {{
+    * {{
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }}
+
+    html, body {{
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
       background: var(--bg);
-      background-image: 
-        radial-gradient(circle at 18% 25%, rgba(139, 92, 246, 0.12) 0%, transparent 45%),
-        radial-gradient(circle at 75% 75%, rgba(0, 240, 255, 0.08) 0%, transparent 45%);
+      background-image:
+        radial-gradient(circle at 15% 20%, rgba(99, 102, 241, 0.10) 0%, transparent 45%),
+        radial-gradient(circle at 85% 80%, rgba(0, 242, 254, 0.08) 0%, transparent 40%);
       color: var(--text);
-      min-height: 100vh;
-      overflow-x: hidden;
-      padding: 16px;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }}
+
+    body {{
+      display: flex;
+      flex-direction: column;
+      padding: 10px 14px;
+      gap: 10px;
+    }}
+
+    .mono {{
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
     }}
 
     /* Top Navigation Bar */
     .top-bar {{
+      height: 44px;
+      min-height: 44px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      padding: 14px 22px;
-      background: rgba(14, 21, 37, 0.85);
-      backdrop-filter: blur(16px);
+      justify-content: space-between;
+      padding: 0 16px;
+      background: var(--card-bg);
+      backdrop-filter: blur(20px);
       border: 1px solid var(--card-border);
-      border-radius: 16px;
-      margin-bottom: 16px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      border-radius: 12px;
     }}
-    .brand-wrap {{ display: flex; align-items: center; gap: 14px; }}
+
+    .brand-wrap {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }}
     .core-orb-mini {{
-      width: 28px; height: 28px; border-radius: 50%;
-      background: radial-gradient(circle, var(--cyan) 20%, var(--purple) 80%);
-      box-shadow: 0 0 16px var(--cyan-glow);
-      animation: pulseMini 2s infinite ease-in-out;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--cyan) 20%, #6366f1 80%);
+      box-shadow: 0 0 14px var(--cyan-glow);
+      animation: pulseMini 2.5s infinite ease-in-out;
     }}
     @keyframes pulseMini {{
       0%, 100% {{ transform: scale(1); filter: brightness(1); }}
-      50% {{ transform: scale(1.12); filter: brightness(1.3); }}
+      50% {{ transform: scale(1.1); filter: brightness(1.3); }}
     }}
-    .brand-title {{ font-size: 16px; font-weight: 800; letter-spacing: 0.12em; color: #fff; display: flex; align-items: center; gap: 8px; }}
+    .brand-title {{
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }}
     .brand-title span {{ color: var(--cyan); }}
-    .brand-sub {{ font-size: 11px; color: var(--muted); letter-spacing: 0.05em; }}
+    .brand-sub {{
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 2px 7px;
+      border-radius: 6px;
+    }}
 
-    .nav-stats {{ display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }}
+    .top-center {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }}
+    .asset-tab {{
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      color: var(--muted);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }}
+    .asset-tab:hover {{
+      color: #fff;
+      border-color: rgba(0, 242, 254, 0.4);
+    }}
+    .asset-tab.active {{
+      background: rgba(0, 242, 254, 0.12);
+      border-color: var(--cyan);
+      color: #fff;
+      box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+    }}
+
+    .top-right {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }}
     .badge {{
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: 11px; font-weight: 700; padding: 5px 12px;
-      border-radius: 20px; text-transform: uppercase; letter-spacing: 0.06em;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.04em;
     }}
-    .badge.online {{ background: rgba(16, 185, 129, 0.15); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.4); }}
-    .badge.offline {{ background: rgba(244, 63, 94, 0.15); color: var(--rose); border: 1px solid rgba(244, 63, 94, 0.4); }}
-    .badge.info {{ background: rgba(0, 240, 255, 0.12); color: var(--cyan); border: 1px solid rgba(0, 240, 255, 0.3); }}
-    .badge.amber {{ background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.4); }}
+    .badge.online {{ background: rgba(16, 185, 129, 0.12); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }}
+    .badge.info {{ background: rgba(0, 242, 254, 0.10); color: var(--cyan); border: 1px solid rgba(0, 242, 254, 0.25); }}
+    .badge.amber {{ background: rgba(251, 191, 36, 0.12); color: var(--amber); border: 1px solid rgba(251, 191, 36, 0.3); }}
+    .badge.purple {{ background: rgba(129, 140, 248, 0.12); color: var(--purple); border: 1px solid rgba(129, 140, 248, 0.3); }}
 
-    /* Layout Split */
+    /* Main Dashboard Grid: Perfectly Fits Viewport */
     .dashboard-grid {{
+      flex: 1;
+      min-height: 0;
       display: grid;
-      grid-template-columns: 1fr 440px;
-      gap: 16px;
-      min-height: calc(100vh - 110px);
-    }}
-    @media (max-width: 1180px) {{
-      .dashboard-grid {{ grid-template-columns: 1fr; }}
+      grid-template-columns: 1fr 380px;
+      gap: 10px;
     }}
 
-    /* Left Stage: Neural Network Graph */
+    /* Left Stage: The Neural Graph Canvas */
     .neural-stage {{
       background: var(--card-bg);
       backdrop-filter: blur(20px);
       border: 1px solid var(--card-border);
-      border-radius: 20px;
-      padding: 20px;
+      border-radius: 14px;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
       position: relative;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-    }}
-    .stage-header {{
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-    }}
-    .asset-tabs {{ display: flex; gap: 8px; }}
-    .asset-tab {{
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      color: var(--muted);
-      padding: 6px 14px;
-      border-radius: 10px;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.2s;
-    }}
-    .asset-tab:hover {{ color: #fff; border-color: var(--cyan); }}
-    .asset-tab.active {{
-      background: rgba(0, 240, 255, 0.15);
-      border-color: var(--cyan);
-      color: #fff;
-      box-shadow: 0 0 12px var(--cyan-glow);
     }}
 
-    /* SVG Canvas Neural Container */
+    .canvas-hud {{
+      height: 38px;
+      min-height: 38px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      background: rgba(0, 0, 0, 0.2);
+    }}
+    .hud-title {{
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }}
+    .hud-metrics {{
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }}
+    .hud-metrics span b {{
+      color: #fff;
+    }}
+
     .canvas-wrap {{
       flex: 1;
+      min-height: 0;
       width: 100%;
-      min-height: 480px;
+      position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
-      position: relative;
+      padding: 6px;
     }}
+
     svg.neural-svg {{
       width: 100%;
       height: 100%;
-      min-height: 480px;
-      filter: drop-shadow(0 0 10px rgba(0,0,0,0.4));
+      display: block;
     }}
 
-    /* Synaptic wire animations */
-    .synapse-wire {{
+    /* SVG Neural Elements */
+    .synapse-base {{
       fill: none;
-      stroke: rgba(255, 255, 255, 0.08);
+      stroke: rgba(255, 255, 255, 0.07);
       stroke-width: 1.5;
     }}
     .synapse-pulse {{
       fill: none;
       stroke: var(--cyan);
-      stroke-width: 2.5;
+      stroke-width: 2.2;
       stroke-linecap: round;
-      stroke-dasharray: 10 180;
-      animation: pulseRun 2.5s linear infinite;
+      stroke-dasharray: 8 160;
+      animation: synapseRun 2.8s linear infinite;
     }}
-    @keyframes pulseRun {{
-      from {{ stroke-dashoffset: 190; }}
+    .synapse-pulse-purple {{
+      fill: none;
+      stroke: var(--purple);
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-dasharray: 8 160;
+      animation: synapseRun 3.2s linear infinite;
+    }}
+    .synapse-pulse-emerald {{
+      fill: none;
+      stroke: var(--emerald);
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-dasharray: 8 160;
+      animation: synapseRun 2.5s linear infinite;
+    }}
+    @keyframes synapseRun {{
+      from {{ stroke-dashoffset: 168; }}
       to {{ stroke-dashoffset: 0; }}
     }}
 
-    /* Node Cards inside SVG */
-    .svg-node {{ cursor: pointer; transition: all 0.3s; }}
-    .svg-node:hover rect {{ stroke: var(--cyan); filter: drop-shadow(0 0 8px var(--cyan-glow)); }}
-
-    /* Bottom Dispersion Chart */
-    .dispersion-wrap {{
-      margin-top: 14px;
-      background: rgba(7, 11, 19, 0.85);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 12px;
-      padding: 12px 16px;
+    .svg-node-card {{
+      cursor: pointer;
+      transition: all 0.2s ease;
     }}
-    .dispersion-title {{ font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; }}
-    .dispersion-bars {{ display: flex; gap: 6px; height: 36px; align-items: flex-end; }}
-    .disp-bar-col {{ flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }}
-    .disp-bar {{ width: 100%; background: var(--purple); border-radius: 3px 3px 0 0; transition: height 0.3s ease; min-height: 3px; }}
-    .disp-bar.mid {{ background: var(--cyan); box-shadow: 0 0 8px var(--cyan-glow); }}
-    .disp-bar-label {{ font-size: 9px; color: var(--subtle); }}
+    .svg-node-card:hover rect.node-box {{
+      stroke: var(--cyan);
+      fill: rgba(14, 24, 45, 0.95);
+      filter: drop-shadow(0 0 8px rgba(0, 242, 254, 0.3));
+    }}
 
-    /* Right Inspection Drawer */
+    /* CTQW Dispersion Strip at Bottom of Stage */
+    .dispersion-strip {{
+      height: 48px;
+      min-height: 48px;
+      padding: 6px 16px;
+      background: rgba(0, 0, 0, 0.35);
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }}
+    .disp-info {{
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }}
+    .disp-title {{
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }}
+    .disp-sub {{
+      font-size: 9px;
+      color: var(--subtle);
+    }}
+    .disp-bars-box {{
+      display: flex;
+      align-items: flex-end;
+      gap: 5px;
+      height: 28px;
+    }}
+    .disp-col {{
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      width: 24px;
+    }}
+    .disp-bar {{
+      width: 100%;
+      background: rgba(129, 140, 248, 0.5);
+      border-radius: 2px 2px 0 0;
+      min-height: 3px;
+      transition: height 0.3s ease;
+    }}
+    .disp-bar.mid {{
+      background: var(--cyan);
+      box-shadow: 0 0 6px var(--cyan-glow);
+    }}
+    .disp-tag {{
+      font-size: 8px;
+      font-weight: 700;
+      color: var(--subtle);
+    }}
+
+    /* Right Panel: Precision Telemetry Drawer */
     .telemetry-drawer {{
       background: var(--card-bg);
       backdrop-filter: blur(20px);
       border: 1px solid var(--card-border);
-      border-radius: 20px;
-      padding: 20px;
+      border-radius: 14px;
       display: flex;
       flex-direction: column;
-      gap: 16px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-      overflow-y: auto;
-      max-height: calc(100vh - 110px);
+      overflow: hidden;
+      padding: 12px;
+      gap: 9px;
     }}
-    .drawer-header {{
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      padding-bottom: 14px;
-    }}
-    .symbol-hero {{ font-size: 20px; font-weight: 800; color: #fff; display: flex; align-items: baseline; gap: 8px; }}
-    .symbol-price {{ font-size: 18px; font-weight: 700; color: var(--cyan); }}
-    .symbol-micro {{ font-size: 11px; color: var(--muted); }}
 
-    /* Pipeline Step Stepper */
-    .section-title {{ font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); display: flex; align-items: center; justify-content: space-between; }}
-    .pipeline-stepper {{ display: flex; flex-direction: column; gap: 8px; }}
-    .step-item {{
-      background: rgba(7, 11, 19, 0.7);
+    /* Active Asset Hero */
+    .asset-hero {{
+      background: rgba(255, 255, 255, 0.02);
       border: 1px solid rgba(255, 255, 255, 0.05);
       border-radius: 10px;
-      padding: 10px 14px;
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }}
+    .asset-id-box {{
+      display: flex;
+      flex-direction: column;
+    }}
+    .asset-symbol {{
+      font-size: 16px;
+      font-weight: 800;
+      color: #fff;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      transition: all 0.2s;
+      gap: 6px;
     }}
-    .step-item:hover {{ border-color: rgba(255, 255, 255, 0.15); }}
-    .step-left {{ display: flex; align-items: center; gap: 10px; }}
-    .step-num {{
-      width: 22px; height: 22px; border-radius: 50%;
-      background: rgba(255, 255, 255, 0.06);
-      font-size: 11px; font-weight: 800;
-      display: flex; align-items: center; justify-content: center;
+    .asset-micro {{
+      font-size: 11px;
       color: var(--muted);
+      margin-top: 1px;
     }}
-    .step-num.pass {{ background: rgba(16, 185, 129, 0.2); color: var(--emerald); }}
-    .step-num.active {{ background: rgba(0, 240, 255, 0.2); color: var(--cyan); box-shadow: 0 0 8px var(--cyan-glow); }}
-    .step-num.blocked {{ background: rgba(244, 63, 94, 0.2); color: var(--rose); }}
-    .step-name {{ font-size: 12px; font-weight: 700; color: #fff; }}
-    .step-desc {{ font-size: 10px; color: var(--muted); }}
-    .step-val {{ font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }}
+    .asset-price-box {{
+      text-align: right;
+    }}
+    .asset-price {{
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--cyan);
+      text-shadow: 0 0 10px rgba(0, 242, 254, 0.25);
+    }}
+    .asset-spread-badge {{
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--emerald);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      margin-top: 2px;
+    }}
 
-    /* Live Broker Card */
-    .broker-grid {{
+    /* Physics Matrix (2x2 Quad) */
+    .physics-quad {{
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
+      gap: 6px;
     }}
-    .mini-stat {{
-      background: rgba(7, 11, 19, 0.6);
-      border: 1px solid rgba(255,255,255,0.04);
+    .quad-tile {{
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.04);
       border-radius: 8px;
-      padding: 8px 10px;
+      padding: 7px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
     }}
-    .mini-label {{ font-size: 10px; color: var(--muted); text-transform: uppercase; }}
-    .mini-val {{ font-size: 13px; font-weight: 700; color: #fff; margin-top: 2px; }}
+    .quad-label {{
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }}
+    .quad-val {{
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+    }}
 
-    /* Positions Table */
-    .positions-wrap {{
-      background: rgba(7, 11, 19, 0.6);
-      border: 1px solid rgba(255,255,255,0.05);
-      border-radius: 10px;
-      padding: 10px;
-      font-size: 11px;
-    }}
-    .pos-item {{
+    /* Section Title */
+    .drawer-sec-title {{
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      text-transform: uppercase;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 6px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.04);
+      padding: 0 2px;
     }}
-    .pos-item:last-child {{ border-bottom: none; }}
-    .empty-state {{ color: var(--subtle); font-size: 11px; text-align: center; padding: 12px; }}
 
-    /* Event Stream Terminal */
-    .terminal-box {{
-      background: #04060a;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+    /* Pre-Trade Gates Compact List */
+    .gates-box {{
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.04);
       border-radius: 10px;
-      padding: 10px 12px;
-      font-size: 10px;
-      max-height: 140px;
-      overflow-y: auto;
-      line-height: 1.4;
+      padding: 4px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }}
-    .term-line {{ margin-bottom: 4px; display: flex; gap: 8px; }}
-    .term-time {{ color: var(--subtle); }}
-    .term-sym {{ color: var(--cyan); font-weight: 700; }}
-    .term-msg {{ color: #cbd5e1; }}
-    .term-trade {{ color: var(--emerald); font-weight: 700; }}
-
-    /* Floating control */
-    .pause-btn {{
-      background: transparent;
-      border: 1px solid rgba(255,255,255,0.1);
-      color: var(--muted);
-      border-radius: 8px;
-      padding: 4px 10px;
+    .gate-row {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 6px;
+      border-radius: 6px;
       font-size: 11px;
-      cursor: pointer;
+      transition: background 0.15s;
     }}
-    .pause-btn:hover {{ border-color: var(--cyan); color: #fff; }}
-    .pause-btn.active {{ background: rgba(0, 240, 255, 0.15); color: var(--cyan); border-color: var(--cyan); }}
+    .gate-row:hover {{
+      background: rgba(255, 255, 255, 0.03);
+    }}
+    .gate-name-wrap {{
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }}
+    .gate-dot {{
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--emerald);
+      box-shadow: 0 0 6px var(--emerald-glow);
+    }}
+    .gate-dot.amber {{ background: var(--amber); box-shadow: 0 0 6px var(--amber-glow); }}
+    .gate-dot.purple {{ background: var(--purple); box-shadow: 0 0 6px var(--purple-glow); }}
+    .gate-name {{
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text);
+    }}
+    .gate-badge {{
+      font-size: 9px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--emerald);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }}
+
+    /* Broker Account & Equity Tile */
+    .broker-box {{
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 10px;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }}
+    .broker-row {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+    }}
+    .broker-label {{ color: var(--muted); }}
+    .broker-val {{ font-weight: 700; color: #fff; }}
+
+    /* Stream Ticker Bar at Bottom of Drawer */
+    .ticker-bar {{
+      height: 28px;
+      min-height: 28px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 6px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 10px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }}
+    .ticker-dot {{
+      width: 6px;
+      height: 6px;
+      min-width: 6px;
+      border-radius: 50%;
+      background: var(--emerald);
+      box-shadow: 0 0 6px var(--emerald-glow);
+      animation: pulseMini 2s infinite ease-in-out;
+    }}
+    .ticker-text {{
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .ticker-text b {{
+      color: #fff;
+    }}
   </style>
 </head>
 <body>
+
   <!-- Top Navigation Bar -->
   <header class="top-bar">
     <div class="brand-wrap">
       <div class="core-orb-mini"></div>
-      <div>
-        <div class="brand-title">ENTROPIQ <span>QUANTUM NEURAL</span></div>
-        <div class="brand-sub">HFT Open Quantum Systems &bull; Lead-Lag Macro Microstructure</div>
-      </div>
+      <div class="brand-title">ENTROPIQ <span>QUANTUM</span></div>
+      <div class="brand-sub">HFT SYSTEM</div>
     </div>
 
-    <div class="nav-stats">
-      <span id="badge-ws" class="badge online">● STREAMER CONECTADO</span>
-      <span id="badge-market" class="badge info">● CRIPTO 24/7/365</span>
-      <span id="badge-phase" class="badge amber">FASE: ThermalNoise</span>
-      <button id="btn-pause" class="pause-btn" onclick="togglePause()">PAUSAR FLUJO</button>
+    <!-- Center Asset Tabs -->
+    <div class="top-center" id="asset-tabs-bar">
+      <!-- Injected dynamically via JS -->
+    </div>
+
+    <!-- Right System Badges -->
+    <div class="top-right">
+      <div class="badge online" id="badge-ws">● STREAMER ACTIVO</div>
+      <div class="badge info" id="badge-market" title="El mercado de criptomonedas no cierra jamás: opera 24/7/365 continuo">
+        ● CRIPTO 24/7 (CONTINUO)
+      </div>
+      <div class="badge purple mono" id="badge-phase">FASE: THERMALNOISE</div>
     </div>
   </header>
 
-  <!-- Main Split Layout -->
-  <div class="dashboard-grid">
-    <!-- Left Stage: Interactive Neural Graph -->
-    <div class="neural-stage">
-      <div class="stage-header">
-        <div class="asset-tabs" id="asset-tabs-bar">
-          <!-- Dynamic Asset Tabs -->
+  <!-- Main 100vh Layout Grid -->
+  <main class="dashboard-grid">
+
+    <!-- Left Stage: Interactive SVG Neural Network Canvas -->
+    <section class="neural-stage">
+      <div class="canvas-hud">
+        <div class="hud-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          Arquitectura de Decisión Neural Cuántica (3-Tier CTQW)
         </div>
-        <div style="font-size: 11px; color: var(--muted);">
-          Throughput: <strong id="val-throughput" style="color: var(--cyan);">0</strong> ticks/s &bull;
-          Memoria: <strong id="val-rss" style="color: #fff;">0.00</strong> MB
+        <div class="hud-metrics mono">
+          <span>Throughput: <b id="val-throughput">0</b> ticks/s</span>
+          <span>Latencia: <b id="val-latency">18.0</b> µs</span>
+          <span>RAM: <b id="val-rss">8.4</b> MB</span>
         </div>
       </div>
 
-      <!-- Neural Network Canvas / SVG Graph -->
       <div class="canvas-wrap">
-        <svg class="neural-svg" viewBox="0 0 840 500" preserveAspectRatio="xMidYMid meet">
+        <svg class="neural-svg" viewBox="0 0 940 450" preserveAspectRatio="xMidYMid meet">
           <defs>
-            <radialGradient id="core-glow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.9" />
-              <stop offset="45%" stop-color="#8b5cf6" stop-opacity="0.6" />
-              <stop offset="80%" stop-color="#090d16" stop-opacity="0.9" />
-              <stop offset="100%" stop-color="#090d16" stop-opacity="0" />
+            <radialGradient id="grad-core" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#00f2fe" stop-opacity="1" />
+              <stop offset="40%" stop-color="#3b82f6" stop-opacity="0.8" />
+              <stop offset="100%" stop-color="#6366f1" stop-opacity="0.1" />
             </radialGradient>
-            <linearGradient id="cyan-wire" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.8" />
-              <stop offset="100%" stop-color="#00f0ff" stop-opacity="0.9" />
-            </linearGradient>
+            <radialGradient id="grad-aura" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.3" />
+              <stop offset="60%" stop-color="#818cf8" stop-opacity="0.1" />
+              <stop offset="100%" stop-color="#07090e" stop-opacity="0" />
+            </radialGradient>
             <filter id="glow-filter" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="4" result="blur" />
+              <feGaussianBlur stdDeviation="5" result="blur" />
               <feComposite in="SourceGraphic" in2="blur" operator="over" />
             </filter>
           </defs>
 
-          <!-- Synaptic Connecting Curves -->
-          <!-- 1. Core -> L1/L2 Book Depth -->
-          <path class="synapse-wire" d="M 195 250 C 330 250, 390 55, 520 55" />
-          <path class="synapse-pulse" d="M 195 250 C 330 250, 390 55, 520 55" />
+          <!-- Synaptic Connecting Wires (Tier 1 -> Tier 2) -->
+          <g class="synapse-layer-1">
+            <path d="M 125 225 C 200 225, 200 115, 275 115" class="synapse-base" />
+            <path d="M 125 225 C 200 225, 200 115, 275 115" class="synapse-pulse" />
 
-          <!-- 2. Core -> Quantum Lindblad Matrix -->
-          <path class="synapse-wire" d="M 195 250 C 330 250, 390 120, 520 120" />
-          <path class="synapse-pulse" style="animation-delay: -0.4s;" d="M 195 250 C 330 250, 390 120, 520 120" />
+            <path d="M 125 225 C 200 225, 200 225, 275 225" class="synapse-base" />
+            <path d="M 125 225 C 200 225, 200 225, 275 225" class="synapse-pulse-purple" />
 
-          <!-- 3. Core -> Fluid Acoustics & Mach Shock -->
-          <path class="synapse-wire" d="M 195 250 C 330 250, 390 185, 520 185" />
-          <path class="synapse-pulse" style="animation-delay: -0.8s;" d="M 195 250 C 330 250, 390 185, 520 185" />
-
-          <!-- 4. Core -> Toxic Flow Shield (VPIN) -->
-          <path class="synapse-wire" d="M 195 250 C 330 250, 390 250, 520 250" />
-          <path class="synapse-pulse" style="animation-delay: -1.2s;" d="M 195 250 C 330 250, 390 250, 520 250" />
-
-          <!-- 5. Core -> 6-Stage Pre-Trade Pipeline -->
-          <path class="synapse-wire" d="M 195 250 C 330 250, 390 315, 520 315" />
-          <path class="synapse-pulse" style="animation-delay: -1.6s;" d="M 195 250 C 330 250, 390 315, 520 315" />
-
-          <!-- 6. Core -> Smart Order Router (SOR) & Kelly -->
-          <path class="synapse-wire" d="M 195 250 C 330 250, 390 380, 520 380" />
-          <path class="synapse-pulse" style="animation-delay: -2.0s;" d="M 195 250 C 330 250, 390 380, 520 380" />
-
-          <!-- 7. Core -> Alpaca Broker Execution -->
-          <path class="synapse-wire" d="M 195 250 C 330 250, 390 445, 520 445" />
-          <path class="synapse-pulse" style="animation-delay: -2.4s;" d="M 195 250 C 330 250, 390 445, 520 445" />
-
-          <!-- Central Quantum Core Orb -->
-          <g transform="translate(195, 250)">
-            <!-- Outer Pulsing Glow Rings -->
-            <circle r="88" fill="none" stroke="rgba(139, 92, 246, 0.15)" stroke-width="1.5" stroke-dasharray="3 6" />
-            <circle r="72" fill="none" stroke="rgba(0, 240, 255, 0.25)" stroke-width="2" />
-            <circle r="56" fill="url(#core-glow)" filter="url(#glow-filter)" />
-            <circle r="38" fill="#0d1424" stroke="var(--cyan)" stroke-width="2" />
-            <!-- Core Labels -->
-            <text text-anchor="middle" y="-4" fill="#ffffff" font-size="10" font-weight="800" letter-spacing="1">QUANTUM</text>
-            <text text-anchor="middle" y="9" fill="var(--cyan)" font-size="9" font-weight="700">CORE RK4</text>
-            <text id="svg-core-phase" text-anchor="middle" y="24" fill="var(--amber)" font-size="8" font-weight="700">THERMAL</text>
+            <path d="M 125 225 C 200 225, 200 335, 275 335" class="synapse-base" />
+            <path d="M 125 225 C 200 225, 200 335, 275 335" class="synapse-pulse-emerald" />
           </g>
 
-          <!-- 7 Pipeline Neural Nodes on Right Column -->
-          <!-- Node 1: Ingestion & L2 Book Depth -->
-          <g class="svg-node" transform="translate(520, 30)" onclick="selectStage(1)">
-            <rect width="280" height="48" rx="8" fill="rgba(14, 21, 37, 0.9)" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-            <circle cx="20" cy="24" r="6" fill="var(--cyan)" />
-            <text x="36" y="20" fill="#fff" font-size="11" font-weight="700">01 &bull; L1/L2 NBBO &amp; SPREAD</text>
-            <text id="node-1-val" x="36" y="36" fill="var(--muted)" font-size="9">Spread: -- bps &bull; Profundidad: OK</text>
-            <rect x="220" y="14" width="50" height="20" rx="10" fill="rgba(16,185,129,0.15)" stroke="rgba(16,185,129,0.4)" />
-            <text id="node-1-status" x="245" y="27" text-anchor="middle" fill="var(--emerald)" font-size="8" font-weight="800">LAMINAR</text>
+          <!-- Synaptic Connecting Wires (Tier 2 -> Tier 3 Leafs) -->
+          <g class="synapse-layer-2">
+            <!-- Hub 1 to Leafs 1, 2 -->
+            <path d="M 485 115 C 530 115, 530 85, 575 85" class="synapse-base" />
+            <path d="M 485 115 C 530 115, 530 85, 575 85" class="synapse-pulse" />
+
+            <path d="M 485 115 C 530 115, 530 135, 575 135" class="synapse-base" />
+            <path d="M 485 115 C 530 115, 530 135, 575 135" class="synapse-pulse" />
+
+            <!-- Hub 2 to Leafs 3, 4 -->
+            <path d="M 485 225 C 530 225, 530 200, 575 200" class="synapse-base" />
+            <path d="M 485 225 C 530 225, 530 200, 575 200" class="synapse-pulse-purple" />
+
+            <path d="M 485 225 C 530 225, 530 250, 575 250" class="synapse-base" />
+            <path d="M 485 225 C 530 225, 530 250, 575 250" class="synapse-pulse-purple" />
+
+            <!-- Hub 3 to Leafs 5, 6, 7 -->
+            <path d="M 485 335 C 530 335, 530 310, 575 310" class="synapse-base" />
+            <path d="M 485 335 C 530 335, 530 310, 575 310" class="synapse-pulse-emerald" />
+
+            <path d="M 485 335 C 530 335, 530 355, 575 355" class="synapse-base" />
+            <path d="M 485 335 C 530 335, 530 355, 575 355" class="synapse-pulse-emerald" />
+
+            <path d="M 485 335 C 530 335, 530 400, 575 400" class="synapse-base" />
+            <path d="M 485 335 C 530 335, 530 400, 575 400" class="synapse-pulse-emerald" />
           </g>
 
-          <!-- Node 2: Lindblad Density Matrix ρ -->
-          <g class="svg-node" transform="translate(520, 95)" onclick="selectStage(2)">
-            <rect width="280" height="48" rx="8" fill="rgba(14, 21, 37, 0.9)" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-            <circle cx="20" cy="24" r="6" fill="var(--purple)" />
-            <text x="36" y="20" fill="#fff" font-size="11" font-weight="700">02 &bull; MATRIZ DENSIDAD ρ (RK4)</text>
-            <text id="node-2-val" x="36" y="36" fill="var(--muted)" font-size="9">S(norm): -- &bull; Coherencia C: --</text>
-            <rect x="220" y="14" width="50" height="20" rx="10" fill="rgba(139,92,246,0.15)" stroke="rgba(139,92,246,0.4)" />
-            <text id="node-2-status" x="245" y="27" text-anchor="middle" fill="var(--purple)" font-size="8" font-weight="800">COHERENTE</text>
+          <!-- TIER 1: The Central Quantum Core Sphere -->
+          <g transform="translate(85, 225)">
+            <!-- Outer Pulsing Halo -->
+            <circle cx="0" cy="0" r="68" fill="url(#grad-aura)" />
+            <circle cx="0" cy="0" r="54" fill="none" stroke="rgba(0, 242, 254, 0.2)" stroke-width="1.5" stroke-dasharray="4 6">
+              <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="20s" repeatCount="indefinite"/>
+            </circle>
+            <!-- Core Sphere -->
+            <circle cx="0" cy="0" r="42" fill="url(#grad-core)" filter="url(#glow-filter)" />
+            <circle cx="0" cy="0" r="42" fill="none" stroke="rgba(255, 255, 255, 0.5)" stroke-width="1" />
+            <!-- Text inside core -->
+            <text x="0" y="-8" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="800" letter-spacing="1.5">QUANTUM</text>
+            <text x="0" y="5" text-anchor="middle" fill="#00f2fe" font-size="8" font-weight="700">CORE RK4</text>
+            <rect x="-30" y="12" width="60" height="14" rx="7" fill="rgba(0, 0, 0, 0.45)" stroke="rgba(0, 242, 254, 0.3)" stroke-width="0.8" />
+            <text x="0" y="22" id="svg-core-phase" text-anchor="middle" fill="#fbbf24" font-size="7.5" font-weight="800" font-family="'JetBrains Mono', monospace">THERMAL</text>
           </g>
 
-          <!-- Node 3: Fluid Acoustics & Mach Shock -->
-          <g class="svg-node" transform="translate(520, 160)" onclick="selectStage(3)">
-            <rect width="280" height="48" rx="8" fill="rgba(14, 21, 37, 0.9)" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-            <circle cx="20" cy="24" r="6" fill="var(--cyan)" />
-            <text x="36" y="20" fill="#fff" font-size="11" font-weight="700">03 &bull; HIDRODINÁMICA &amp; MACH</text>
-            <text id="node-3-val" x="36" y="36" fill="var(--muted)" font-size="9">Mach: 0.00 &bull; Cavitación: No</text>
-            <rect x="220" y="14" width="50" height="20" rx="10" fill="rgba(0,240,255,0.15)" stroke="rgba(0,240,255,0.4)" />
-            <text id="node-3-status" x="245" y="27" text-anchor="middle" fill="var(--cyan)" font-size="8" font-weight="800">SUBSÓNICO</text>
+          <!-- TIER 2: Intermediate Processing Clusters -->
+          <!-- Hub 1: Microestructura L1/L2 -->
+          <g class="svg-node-card" transform="translate(275, 87)">
+            <rect class="node-box" width="210" height="56" rx="10" fill="rgba(13, 20, 35, 0.88)" stroke="rgba(0, 242, 254, 0.3)" stroke-width="1.2" />
+            <circle cx="18" cy="22" r="5" fill="#00f2fe" filter="url(#glow-filter)" />
+            <text x="32" y="22" fill="#ffffff" font-size="11" font-weight="700">01 · INGESTIÓN & SPREAD</text>
+            <text x="32" y="38" id="hub-1-desc" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">Spread: -- bps &bull; OFI: --</text>
+            <rect x="150" y="10" width="50" height="16" rx="4" fill="rgba(0, 242, 254, 0.12)" stroke="rgba(0, 242, 254, 0.3)" stroke-width="0.8" />
+            <text x="175" y="21" id="hub-1-status" text-anchor="middle" fill="#00f2fe" font-size="8" font-weight="800">LAMINAR</text>
           </g>
 
-          <!-- Node 4: Toxic Flow Shield (VPIN) -->
-          <g class="svg-node" transform="translate(520, 225)" onclick="selectStage(4)">
-            <rect width="280" height="48" rx="8" fill="rgba(14, 21, 37, 0.9)" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-            <circle cx="20" cy="24" r="6" fill="var(--emerald)" />
-            <text x="36" y="20" fill="#fff" font-size="11" font-weight="700">04 &bull; ESCUDO TOXICIDAD (VPIN)</text>
-            <text id="node-4-val" x="36" y="36" fill="var(--muted)" font-size="9">VPIN: 0.000 &bull; Umbral: &lt; 0.70</text>
-            <rect x="220" y="14" width="50" height="20" rx="10" fill="rgba(16,185,129,0.15)" stroke="rgba(16,185,129,0.4)" />
-            <text id="node-4-status" x="245" y="27" text-anchor="middle" fill="var(--emerald)" font-size="8" font-weight="800">PERMISIVO</text>
+          <!-- Hub 2: Física Cuántica & Fluidos -->
+          <g class="svg-node-card" transform="translate(275, 197)">
+            <rect class="node-box" width="210" height="56" rx="10" fill="rgba(13, 20, 35, 0.88)" stroke="rgba(129, 140, 248, 0.3)" stroke-width="1.2" />
+            <circle cx="18" cy="22" r="5" fill="#818cf8" filter="url(#glow-filter)" />
+            <text x="32" y="22" fill="#ffffff" font-size="11" font-weight="700">02 · FÍSICA & MATRIZ ρ</text>
+            <text x="32" y="38" id="hub-2-desc" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">S(norm): -- &bull; Coher: --</text>
+            <rect x="145" y="10" width="55" height="16" rx="4" fill="rgba(129, 140, 248, 0.12)" stroke="rgba(129, 140, 248, 0.3)" stroke-width="0.8" />
+            <text x="172" y="21" id="hub-2-status" text-anchor="middle" fill="#818cf8" font-size="8" font-weight="800">COHERENTE</text>
           </g>
 
-          <!-- Node 5: 6-Stage Pre-Trade Pipeline -->
-          <g class="svg-node" transform="translate(520, 290)" onclick="selectStage(5)">
-            <rect width="280" height="48" rx="8" fill="rgba(14, 21, 37, 0.9)" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-            <circle cx="20" cy="24" r="6" fill="var(--amber)" />
-            <text x="36" y="20" fill="#fff" font-size="11" font-weight="700">05 &bull; PIPELINE PRE-TRADE</text>
-            <text id="node-5-val" x="36" y="36" fill="var(--muted)" font-size="9">Retorno &gt; Coste &bull; Delay WS &lt; Max</text>
-            <rect x="220" y="14" width="50" height="20" rx="10" fill="rgba(245,158,11,0.15)" stroke="rgba(245,158,11,0.4)" />
-            <text id="node-5-status" x="245" y="27" text-anchor="middle" fill="var(--amber)" font-size="8" font-weight="800">FILTRANDO</text>
+          <!-- Hub 3: Valuación Pre-Trade & SOR -->
+          <g class="svg-node-card" transform="translate(275, 307)">
+            <rect class="node-box" width="210" height="56" rx="10" fill="rgba(13, 20, 35, 0.88)" stroke="rgba(16, 185, 129, 0.3)" stroke-width="1.2" />
+            <circle cx="18" cy="22" r="5" fill="#10b981" filter="url(#glow-filter)" />
+            <text x="32" y="22" fill="#ffffff" font-size="11" font-weight="700">03 · VALUACIÓN & SOR</text>
+            <text x="32" y="38" id="hub-3-desc" fill="#94a3b8" font-size="9" font-family="'JetBrains Mono', monospace">6 Gates &bull; Half-Kelly 1.0x</text>
+            <rect x="148" y="10" width="52" height="16" rx="4" fill="rgba(16, 185, 129, 0.12)" stroke="rgba(16, 185, 129, 0.3)" stroke-width="0.8" />
+            <text x="174" y="21" id="hub-3-status" text-anchor="middle" fill="#10b981" font-size="8" font-weight="800">PERMISIVO</text>
           </g>
 
-          <!-- Node 6: SOR Router & Half-Kelly Sizing -->
-          <g class="svg-node" transform="translate(520, 355)" onclick="selectStage(6)">
-            <rect width="280" height="48" rx="8" fill="rgba(14, 21, 37, 0.9)" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-            <circle cx="20" cy="24" r="6" fill="var(--purple)" />
-            <text x="36" y="20" fill="#fff" font-size="11" font-weight="700">06 &bull; ROUTER SOR &amp; HALF-KELLY</text>
-            <text id="node-6-val" x="36" y="36" fill="var(--muted)" font-size="9">Intent: NeutralHold &bull; Kelly: 1.0x</text>
-            <rect x="220" y="14" width="50" height="20" rx="10" fill="rgba(139,92,246,0.15)" stroke="rgba(139,92,246,0.4)" />
-            <text id="node-6-status" x="245" y="27" text-anchor="middle" fill="var(--purple)" font-size="8" font-weight="800">DECISIÓN</text>
+          <!-- TIER 3: Operational Micro-Nodes (Leaf Fan-Out) -->
+          <!-- Leaf 1: Spread Bid/Ask -->
+          <g class="svg-node-card" transform="translate(575, 68)">
+            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
+            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Spread Bid-Ask Dinámico</text>
+            <text x="210" y="21" id="leaf-1-val" fill="#00f2fe" font-size="9.5" font-family="'JetBrains Mono', monospace">2.5 bps</text>
+            <circle cx="295" cy="17" r="3.5" fill="#10b981" />
           </g>
 
-          <!-- Node 7: Alpaca Broker Execution -->
-          <g class="svg-node" transform="translate(520, 420)" onclick="selectStage(7)">
-            <rect width="280" height="48" rx="8" fill="rgba(14, 21, 37, 0.9)" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-            <circle cx="20" cy="24" r="6" fill="var(--cyan)" />
-            <text x="36" y="20" fill="#fff" font-size="11" font-weight="700">07 &bull; EJECUCIÓN BROKER ALPACA</text>
-            <text id="node-7-val" x="36" y="36" fill="var(--muted)" font-size="9">Marketable Limit GTC &bull; Slippage Cap</text>
-            <rect x="220" y="14" width="50" height="20" rx="10" fill="rgba(0,240,255,0.15)" stroke="rgba(0,240,255,0.4)" />
-            <text id="node-7-status" x="245" y="27" text-anchor="middle" fill="var(--cyan)" font-size="8" font-weight="800">LISTO</text>
+          <!-- Leaf 2: Order Flow Imbalance (OFI) -->
+          <g class="svg-node-card" transform="translate(575, 118)">
+            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
+            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Order Flow Imbalance (OFI)</text>
+            <text x="210" y="21" id="leaf-2-val" fill="#94a3b8" font-size="9.5" font-family="'JetBrains Mono', monospace">Accel: 0.0</text>
+            <circle cx="295" cy="17" r="3.5" fill="#10b981" />
+          </g>
+
+          <!-- Leaf 3: Matriz Densidad von Neumann -->
+          <g class="svg-node-card" transform="translate(575, 183)">
+            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
+            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Operador Densidad von Neumann (ρ)</text>
+            <text x="210" y="21" id="leaf-3-val" fill="#818cf8" font-size="9.5" font-family="'JetBrains Mono', monospace">S: 0.81 | C: 0.25</text>
+            <circle cx="295" cy="17" r="3.5" fill="#818cf8" />
+          </g>
+
+          <!-- Leaf 4: Régimen Fluídico & Mach -->
+          <g class="svg-node-card" transform="translate(575, 233)">
+            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
+            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Hidrodinámica & Mach Shockwave</text>
+            <text x="210" y="21" id="leaf-4-val" fill="#00f2fe" font-size="9.5" font-family="'JetBrains Mono', monospace">Mach 0.00 (Sub)</text>
+            <circle cx="295" cy="17" r="3.5" fill="#00f2fe" />
+          </g>
+
+          <!-- Leaf 5: Escudo Tóxico VPIN -->
+          <g class="svg-node-card" transform="translate(575, 293)">
+            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
+            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Escudo Toxicidad Flujo (VPIN)</text>
+            <text x="210" y="21" id="leaf-5-val" fill="#10b981" font-size="9.5" font-family="'JetBrains Mono', monospace">VPIN: 0.000</text>
+            <circle cx="295" cy="17" r="3.5" fill="#10b981" />
+          </g>
+
+          <!-- Leaf 6: Margen de Retorno vs Fricción -->
+          <g class="svg-node-card" transform="translate(575, 338)">
+            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
+            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Margen Retorno vs Fricción Fee</text>
+            <text x="210" y="21" id="leaf-6-val" fill="#fbbf24" font-size="9.5" font-family="'JetBrains Mono', monospace">TP 45bps &gt; Fee</text>
+            <circle cx="295" cy="17" r="3.5" fill="#10b981" />
+          </g>
+
+          <!-- Leaf 7: SOR Router & Alpaca Execution -->
+          <g class="svg-node-card" transform="translate(575, 383)">
+            <rect class="node-box" width="315" height="34" rx="7" fill="rgba(10, 16, 28, 0.85)" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
+            <text x="14" y="21" fill="#e2e8f0" font-size="10.5" font-weight="600">Enrutador SOR & Límite Alpaca REST</text>
+            <text x="210" y="21" id="leaf-7-val" fill="#a78bfa" font-size="9.5" font-family="'JetBrains Mono', monospace">Hold &bull; Kelly: 0.2x</text>
+            <circle cx="295" cy="17" r="3.5" fill="#a78bfa" />
           </g>
         </svg>
       </div>
 
-      <!-- Wavepacket CTQW Depth Dispersion Chart -->
-      <div class="dispersion-wrap">
-        <div class="dispersion-title">
-          <span>Dispersión de Paquete de Ondas L2 (Caminata Cuántica CTQW 8 Niveles)</span>
-          <span id="disp-variance" style="color: var(--cyan);">Var: 0.00</span>
+      <!-- Integrated CTQW Dispersion Strip -->
+      <div class="dispersion-strip">
+        <div class="disp-info">
+          <span class="disp-title">Dispersión de Paquete de Ondas Cuántico CTQW</span>
+          <span class="disp-sub">Distribución probabilística de penetración en 8 niveles de profundidad del libro</span>
         </div>
-        <div class="dispersion-bars" id="dispersion-bars-row">
-          <!-- 8 animated probability bars -->
+        <div class="disp-bars-box" id="dispersion-bars-row">
+          <!-- Injected via JS -->
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Right Drawer: Deep Telemetry & Step-by-Step Pipeline Inspector -->
-    <div class="telemetry-drawer">
-      <!-- Active Symbol Header Card -->
-      <div class="drawer-header">
-        <div>
-          <div class="symbol-hero">
-            <span id="card-symbol">BTC/USD</span>
-            <span class="symbol-price" id="card-mid-price">$0.00</span>
+    <!-- Right Column: Precision Intelligence Panel (Fits 100vh) -->
+    <aside class="telemetry-drawer">
+
+      <!-- Active Asset Hero Card -->
+      <div class="asset-hero">
+        <div class="asset-id-box">
+          <div class="asset-symbol" id="card-symbol">
+            BTC/USD
+            <span class="badge purple mono" id="card-phase-badge" style="font-size: 8.5px; padding: 1px 6px;">THERMALNOISE</span>
           </div>
-          <div class="symbol-micro">
-            Micro-Price: <strong id="card-micro-price">$0.00</strong> &bull;
-            Spread: <strong id="card-spread-bps" style="color: var(--cyan);">0.0</strong> bps
+          <div class="asset-micro mono">
+            Micro: <span id="card-micro-price">$76,685.32</span>
           </div>
         </div>
-        <div style="text-align: right;">
-          <div id="card-phase-badge" class="badge amber">THERMAL NOISE</div>
-          <div style="font-size: 10px; color: var(--muted); margin-top: 4px;">Conf: <span id="card-phase-conf">0.0%</span></div>
+        <div class="asset-price-box">
+          <div class="asset-price mono" id="card-mid-price">$76,685.30</div>
+          <div class="asset-spread-badge mono">Spread: <span id="card-spread-bps">2.5</span> bps</div>
         </div>
       </div>
 
-      <!-- Step-by-Step Decision Pipeline Stepper -->
-      <div class="section-title">
-        <span>Evaluación Paso a Paso en Tiempo Real</span>
-        <span style="font-size: 10px; color: var(--cyan);">6 GATES PRE-TRADE</span>
+      <!-- Physics & Microstructure Matrix -->
+      <div class="physics-quad">
+        <div class="quad-tile">
+          <span class="quad-label">Entropía von Neumann</span>
+          <span class="quad-val mono" id="quad-entropy" style="color: var(--purple);">0.810</span>
+        </div>
+        <div class="quad-tile">
+          <span class="quad-label">Coherencia Cuántica</span>
+          <span class="quad-val mono" id="quad-coherence" style="color: var(--cyan);">0.248</span>
+        </div>
+        <div class="quad-tile">
+          <span class="quad-label">Mach Fluídico</span>
+          <span class="quad-val mono" id="quad-mach" style="color: var(--emerald);">0.00 M</span>
+        </div>
+        <div class="quad-tile">
+          <span class="quad-label">Flujo Tóxico VPIN</span>
+          <span class="quad-val mono" id="quad-vpin" style="color: var(--amber);">0.000</span>
+        </div>
       </div>
 
-      <div class="pipeline-stepper" id="pipeline-stepper-list">
-        <!-- Step 1: Spread Check -->
-        <div class="step-item">
-          <div class="step-left">
-            <div id="step-1-badge" class="step-num pass">1</div>
-            <div>
-              <div class="step-name">Límite de Spread Bid/Ask</div>
-              <div class="step-desc" id="step-1-desc">Spread en bps vs límite dinámico</div>
-            </div>
+      <!-- Pre-Trade Multi-Gate Valuation Inspector -->
+      <div class="drawer-sec-title">
+        <span>6 Puertas Pre-Trade de Seguridad</span>
+        <span style="color: var(--emerald); font-size: 9px;">DEFENSA ACTIVA</span>
+      </div>
+      <div class="gates-box">
+        <div class="gate-row">
+          <div class="gate-name-wrap">
+            <div class="gate-dot"></div>
+            <span class="gate-name">1. Límite Spread Bid/Ask (&lt;15 bps)</span>
           </div>
-          <div class="step-val" id="step-1-val" style="color: var(--emerald);">PASS</div>
+          <span class="gate-badge mono" id="gate-spread-badge">PASS</span>
         </div>
-
-        <!-- Step 2: Friction Coverage -->
-        <div class="step-item">
-          <div class="step-left">
-            <div id="step-2-badge" class="step-num pass">2</div>
-            <div>
-              <div class="step-name">Margen de Retorno vs Fricción</div>
-              <div class="step-desc" id="step-2-desc">Target TP 45 bps - Costes &gt;= 10 bps</div>
-            </div>
+        <div class="gate-row">
+          <div class="gate-name-wrap">
+            <div class="gate-dot"></div>
+            <span class="gate-name">2. Retorno Neto vs Fricción Fee</span>
           </div>
-          <div class="step-val" id="step-2-val" style="color: var(--emerald);">PASS</div>
+          <span class="gate-badge mono" id="gate-fee-badge">PASS</span>
         </div>
-
-        <!-- Step 3: WS Latency Ceiling -->
-        <div class="step-item">
-          <div class="step-left">
-            <div id="step-3-badge" class="step-num pass">3</div>
-            <div>
-              <div class="step-name">Techo de Latencia de Datos WS</div>
-              <div class="step-desc" id="step-3-desc">Edad del paquete vs límite máx</div>
-            </div>
+        <div class="gate-row">
+          <div class="gate-name-wrap">
+            <div class="gate-dot"></div>
+            <span class="gate-name">3. Techo Latencia Datos WS (&lt;500ms)</span>
           </div>
-          <div class="step-val" id="step-3-val" style="color: var(--emerald);">PASS</div>
+          <span class="gate-badge mono" id="gate-latency-badge">PASS</span>
         </div>
-
-        <!-- Step 4: Daily Drawdown Breaker -->
-        <div class="step-item">
-          <div class="step-left">
-            <div id="step-4-badge" class="step-num pass">4</div>
-            <div>
-              <div class="step-name">Circuit Breaker Drawdown Diario</div>
-              <div class="step-desc" id="step-4-desc">Pérdida intradiaria &lt; 2.0% equity</div>
-            </div>
+        <div class="gate-row">
+          <div class="gate-name-wrap">
+            <div class="gate-dot"></div>
+            <span class="gate-name">4. Circuit Breaker Drawdown (&lt;2%)</span>
           </div>
-          <div class="step-val" id="step-4-val" style="color: var(--emerald);">PASS</div>
+          <span class="gate-badge mono" id="gate-dd-badge">PASS</span>
         </div>
-
-        <!-- Step 5: Anti-whipsaw & Macro Bias -->
-        <div class="step-item">
-          <div class="step-left">
-            <div id="step-5-badge" class="step-num pass">5</div>
-            <div>
-              <div class="step-name">Ventana Anti-Whipsaw &amp; Sesgo Macro</div>
-              <div class="step-desc" id="step-5-desc">Confirmación acumulada y sesgo Lead-Lag</div>
-            </div>
+        <div class="gate-row">
+          <div class="gate-name-wrap">
+            <div class="gate-dot"></div>
+            <span class="gate-name">5. Confirmación Anti-Whipsaw</span>
           </div>
-          <div class="step-val" id="step-5-val" style="color: var(--cyan);">ALINEADO</div>
+          <span class="gate-badge mono" id="gate-conv-badge">PASS</span>
         </div>
-
-        <!-- Step 6: SOR Router & Kelly Sizing -->
-        <div class="step-item">
-          <div class="step-left">
-            <div id="step-6-badge" class="step-num active">6</div>
-            <div>
-              <div class="step-name">Smart Order Router (SOR) &amp; Kelly</div>
-              <div class="step-desc" id="step-6-desc">Clasificación de intención y apalancamiento</div>
-            </div>
+        <div class="gate-row">
+          <div class="gate-name-wrap">
+            <div class="gate-dot purple"></div>
+            <span class="gate-name">6. SOR Router & Kelly Leverage</span>
           </div>
-          <div class="step-val" id="step-6-val" style="color: var(--purple);">NEUTRAL</div>
-        </div>
-
-        <!-- Step 7: Broker Execution Ready -->
-        <div class="step-item">
-          <div class="step-left">
-            <div id="step-7-badge" class="step-num active">7</div>
-            <div>
-              <div class="step-name">Ejecución en Broker (Alpaca REST)</div>
-              <div class="step-desc" id="step-7-desc">Limit GTC con techo de slippage</div>
-            </div>
-          </div>
-          <div class="step-val" id="step-7-val" style="color: var(--cyan);">STANDBY</div>
+          <span class="gate-badge mono" id="gate-sor-badge" style="background: rgba(129, 140, 248, 0.15); color: var(--purple); border-color: rgba(129, 140, 248, 0.3);">STANDBY</span>
         </div>
       </div>
 
-      <!-- Broker Account & Risk Metrics -->
-      <div class="section-title">
-        <span>Auditoría de Portafolio &amp; Broker Alpaca</span>
-        <span id="card-broker-account" style="color: var(--cyan); font-size: 11px;">PA3NGD2B8</span>
+      <!-- Broker Alpaca Paper Account & Capital -->
+      <div class="drawer-sec-title">
+        <span>Auditoría Broker Alpaca</span>
+        <span class="mono" id="card-broker-account" style="color: var(--cyan); font-size: 9.5px;">PA3NGD2B8 (Paper)</span>
       </div>
-
-      <div class="broker-grid">
-        <div class="mini-stat">
-          <div class="mini-label">Capital (Equity)</div>
-          <div class="mini-val" id="card-equity" style="color: var(--emerald);">$0.00</div>
+      <div class="broker-box">
+        <div class="broker-row">
+          <span class="broker-label">Capital Total (Equity)</span>
+          <span class="broker-val mono" id="card-equity" style="color: var(--emerald); font-size: 13px;">$99,327.97 USD</span>
         </div>
-        <div class="mini-stat">
-          <div class="mini-label">Poder de Compra</div>
-          <div class="mini-val" id="card-bp">$0.00</div>
+        <div class="broker-row">
+          <span class="broker-label">Poder de Compra</span>
+          <span class="broker-val mono" id="card-bp">$397,311.88 USD</span>
         </div>
-        <div class="mini-stat">
-          <div class="mini-label">Sharpe Ratio</div>
-          <div class="mini-val" id="card-sharpe" style="color: var(--cyan);">0.00</div>
+        <div class="broker-row">
+          <span class="broker-label">Apalancamiento Half-Kelly</span>
+          <span class="broker-val mono" id="card-kelly" style="color: var(--purple);">0.20x</span>
         </div>
-        <div class="mini-stat">
-          <div class="mini-label">Tasa Acierto (WinRate)</div>
-          <div class="mini-val" id="card-winrate">0.0%</div>
-        </div>
-        <div class="mini-stat">
-          <div class="mini-label">Max Drawdown</div>
-          <div class="mini-val" id="card-maxdd">0.00%</div>
-        </div>
-        <div class="mini-stat">
-          <div class="mini-label">Apalancamiento Kelly</div>
-          <div class="mini-val" id="card-kelly" style="color: var(--purple);">1.00x</div>
+        <div class="broker-row">
+          <span class="broker-label">Posiciones en Cartera</span>
+          <span class="broker-val mono" id="card-pos-count" style="color: var(--muted); font-size: 10px;">0 abiertas (Sin riesgo nocturno)</span>
         </div>
       </div>
 
-      <!-- Active Broker Positions -->
-      <div class="section-title">
-        <span>Posiciones Abiertas en Broker</span>
-        <span id="pos-count" style="font-size: 11px; color: var(--muted);">0 ACTIVAS</span>
-      </div>
-      <div class="positions-wrap" id="positions-container">
-        <div class="empty-state">No hay posiciones abiertas activas en el broker.</div>
+      <!-- Compact Live Ticker Event Bar -->
+      <div class="ticker-bar mono">
+        <div class="ticker-dot"></div>
+        <div class="ticker-text" id="live-ticker-msg">
+          <b>[STREAM ONLINE]</b> Conexión Alpaca activa. Monitoreando microestructura de criptomercado 24/7.
+        </div>
       </div>
 
-      <!-- Real-Time Event Stream Terminal -->
-      <div class="section-title">
-        <span>Consola de Eventos &amp; Auditoría en Vivo</span>
-        <span style="font-size: 10px; color: var(--emerald);">● STREAMING</span>
-      </div>
-      <div class="terminal-box" id="terminal-event-log">
-        <!-- Real-time Rolling Log Lines -->
-      </div>
-    </div>
-  </div>
+    </aside>
+  </main>
 
   <script>
-    let isPaused = false;
     let selectedSymbolIndex = 0;
     let cachedState = {initial_json};
-
-    function togglePause() {{
-      isPaused = !isPaused;
-      const btn = document.getElementById("btn-pause");
-      if (isPaused) {{
-        btn.classList.add("active");
-        btn.innerText = "REANUDAR FLUJO";
-      }} else {{
-        btn.classList.remove("active");
-        btn.innerText = "PAUSAR FLUJO";
-      }}
-    }}
 
     function selectSymbol(idx) {{
       selectedSymbolIndex = idx;
       renderCurrentSymbol();
-    }}
-
-    function selectStage(stageNum) {{
-      const stepper = document.getElementById("pipeline-stepper-list");
-      if (stepper && stepper.children[stageNum - 1]) {{
-        const item = stepper.children[stageNum - 1];
-        item.style.transform = "scale(1.02)";
-        item.style.borderColor = "var(--cyan)";
-        setTimeout(() => {{
-          item.style.transform = "none";
-          item.style.borderColor = "rgba(255, 255, 255, 0.05)";
-        }}, 600);
-      }}
     }}
 
     function renderCurrentSymbol() {{
@@ -892,87 +1111,72 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
 
       // Update Header Asset Tabs
       const tabsBar = document.getElementById("asset-tabs-bar");
-      if (tabsBar) {{
+      if (tabsBar && s.symbols) {{
         tabsBar.innerHTML = s.symbols.map((symObj, idx) => `
           <button class="asset-tab ${{idx === selectedSymbolIndex ? 'active' : ''}}" onclick="selectSymbol(${{idx}})">
-            ${{symObj.symbol}} <span style="font-size: 10px; opacity: 0.8;">$${{symObj.mid_price.toFixed(2)}}</span>
+            ${{symObj.symbol}} <span class="mono" style="font-size: 10px; opacity: 0.85;">$${{symObj.mid_price.toFixed(2)}}</span>
           </button>
         `).join("");
       }}
 
-      // Update Selected Symbol Details
-      document.getElementById("card-symbol").innerText = sym.symbol;
+      // Update Selected Asset Hero
+      document.getElementById("card-symbol").firstChild.textContent = sym.symbol + " ";
       document.getElementById("card-mid-price").innerText = `$${{sym.mid_price.toFixed(2)}}`;
       document.getElementById("card-micro-price").innerText = `$${{sym.micro_price.toFixed(2)}}`;
       document.getElementById("card-spread-bps").innerText = sym.spread_bps.toFixed(1);
 
       // Phase Badge
       const phaseBadge = document.getElementById("card-phase-badge");
-      phaseBadge.innerText = sym.active_phase;
-      document.getElementById("card-phase-conf").innerText = `${{(sym.phase_confidence * 100).toFixed(1)}}%`;
+      phaseBadge.innerText = `${{sym.active_phase}} (${{(sym.phase_confidence * 100).toFixed(0)}}%)`;
       document.getElementById("svg-core-phase").innerText = sym.active_phase.toUpperCase();
 
-      // Update Node 1 (NBBO & Spread)
-      document.getElementById("node-1-val").innerText = `Spread: ${{sym.spread_bps.toFixed(1)}} bps &bull; Bid: $${{sym.best_bid.toFixed(2)}} Ask: $${{sym.best_ask.toFixed(2)}}`;
-      const n1Status = document.getElementById("node-1-status");
-      n1Status.innerText = sym.spread_bps <= 15.0 ? "LAMINAR" : "SPREAD ALTO";
-      n1Status.style.color = sym.spread_bps <= 15.0 ? "var(--emerald)" : "var(--amber)";
+      // Physics Quad
+      document.getElementById("quad-entropy").innerText = sym.normalized_entropy.toFixed(3);
+      document.getElementById("quad-coherence").innerText = sym.quantum_coherence.toFixed(3);
+      document.getElementById("quad-mach").innerText = `${{sym.mach_number.toFixed(2)}} M`;
+      document.getElementById("quad-vpin").innerText = sym.vpin.toFixed(3);
 
-      // Update Node 2 (Density Matrix)
-      document.getElementById("node-2-val").innerText = `S(norm): ${{sym.normalized_entropy.toFixed(3)}} &bull; Coher: ${{sym.quantum_coherence.toFixed(3)}} &bull; Bias: ${{sym.state_bias.toFixed(2)}}`;
-      const n2Status = document.getElementById("node-2-status");
-      n2Status.innerText = sym.quantum_coherence >= 0.25 ? "COHERENTE" : "DECOHERIDO";
-      n2Status.style.color = sym.quantum_coherence >= 0.25 ? "var(--purple)" : "var(--muted)";
+      // Update SVG Intermediate Hubs
+      document.getElementById("hub-1-desc").innerText = `Spread: ${{sym.spread_bps.toFixed(1)}} bps &bull; Profundidad: OK`;
+      const h1Status = document.getElementById("hub-1-status");
+      h1Status.innerText = sym.spread_bps <= 15.0 ? "LAMINAR" : "ALTO SPREAD";
+      h1Status.style.color = sym.spread_bps <= 15.0 ? "var(--cyan)" : "var(--amber)";
 
-      // Update Node 3 (Fluidics & Mach)
-      document.getElementById("node-3-val").innerText = `Mach: ${{sym.mach_number.toFixed(2)}} &bull; cs: ${{sym.speed_of_sound.toFixed(1)}} &bull; Cavit: ${{sym.is_cavitation ? 'ALERTA' : 'No'}}`;
-      const n3Status = document.getElementById("node-3-status");
-      n3Status.innerText = sym.mach_number >= 1.5 ? "CHOQUE CAVIT" : "SUBSÓNICO";
-      n3Status.style.color = sym.mach_number >= 1.5 ? "var(--rose)" : "var(--cyan)";
+      document.getElementById("hub-2-desc").innerText = `S(norm): ${{sym.normalized_entropy.toFixed(3)}} &bull; Coher: ${{sym.quantum_coherence.toFixed(3)}}`;
+      const h2Status = document.getElementById("hub-2-status");
+      h2Status.innerText = sym.quantum_coherence >= 0.25 ? "COHERENTE" : "DECOHERIDO";
+      h2Status.style.color = sym.quantum_coherence >= 0.25 ? "var(--purple)" : "var(--muted)";
 
-      // Update Node 4 (VPIN Toxic Shield)
-      document.getElementById("node-4-val").innerText = `VPIN: ${{sym.vpin.toFixed(3)}} &bull; OFI: ${{sym.ofi_accel.toFixed(1)}}`;
-      const n4Status = document.getElementById("node-4-status");
-      n4Status.innerText = sym.is_toxic ? "ESCUDO BLOQUEO" : "PERMISIVO";
-      n4Status.style.color = sym.is_toxic ? "var(--rose)" : "var(--emerald)";
+      document.getElementById("hub-3-desc").innerText = `VPIN: ${{sym.vpin.toFixed(3)}} &bull; Kelly: ${{s.kelly_leverage.toFixed(2)}}x`;
+      const h3Status = document.getElementById("hub-3-status");
+      h3Status.innerText = sym.is_toxic ? "ESCUDO BLOQUEO" : "PERMISIVO";
+      h3Status.style.color = sym.is_toxic ? "var(--rose)" : "var(--emerald)";
 
-      // Update Node 5 (Pre-Trade Gate)
+      // Update SVG Micro-Nodes (Leafs)
+      document.getElementById("leaf-1-val").innerText = `${{sym.spread_bps.toFixed(1)}} bps (Bid: $${{sym.best_bid.toFixed(2)}})`;
+      document.getElementById("leaf-2-val").innerText = `Accel: ${{sym.ofi_accel.toFixed(1)}}`;
+      document.getElementById("leaf-3-val").innerText = `S: ${{sym.normalized_entropy.toFixed(3)}} | C: ${{sym.quantum_coherence.toFixed(3)}}`;
+      document.getElementById("leaf-4-val").innerText = `Mach ${{sym.mach_number.toFixed(2)}} (${{sym.is_cavitation ? 'Cavitación' : 'Sub'}})`
+      document.getElementById("leaf-5-val").innerText = `VPIN: ${{sym.vpin.toFixed(3)}} ${{sym.is_toxic ? '[ALTO]' : '[OK]'}}`;
+      document.getElementById("leaf-6-val").innerText = sym.spread_bps <= 15.0 ? "Margen > 10bps (PASS)" : "Fricción Alta";
+      document.getElementById("leaf-7-val").innerText = `${{sym.sor_intent}} &bull; Kelly ${{s.kelly_leverage.toFixed(2)}}x`;
+
+      // Update Pre-Trade Gates Badges
       const passSpread = sym.spread_bps <= 15.0;
-      const passToxic = !sym.is_toxic;
-      document.getElementById("node-5-val").innerText = `Fricción: OK &bull; Macro Bias: ${{s.lead_lag_spy_bias >= 0 ? '+' : ''}}${{s.lead_lag_spy_bias.toFixed(2)}}`;
-      const n5Status = document.getElementById("node-5-status");
-      n5Status.innerText = (passSpread && passToxic) ? "GATE ABIERTO" : "FILTRANDO";
-      n5Status.style.color = (passSpread && passToxic) ? "var(--emerald)" : "var(--amber)";
+      const gSpread = document.getElementById("gate-spread-badge");
+      gSpread.innerText = passSpread ? "PASS" : "RECHAZO";
+      gSpread.style.color = passSpread ? "var(--emerald)" : "var(--rose)";
 
-      // Update Node 6 (SOR Router)
-      document.getElementById("node-6-val").innerText = `${{sym.sor_intent}} &bull; Kelly: ${{s.kelly_leverage.toFixed(2)}}x`;
-      const n6Status = document.getElementById("node-6-status");
-      if (sym.sor_intent.includes("AggressiveTaker")) {{
-        n6Status.innerText = "TAKER ACTIVO"; n6Status.style.color = "var(--emerald)";
-      }} else if (sym.sor_intent.includes("EmergencyCancel")) {{
-        n6Status.innerText = "RETIRADA"; n6Status.style.color = "var(--rose)";
-      }} else {{
-        n6Status.innerText = "HOLD"; n6Status.style.color = "var(--purple)";
-      }}
-
-      // Update Step Stepper List
-      document.getElementById("step-1-val").innerText = passSpread ? `${{sym.spread_bps.toFixed(1)}} bps (PASS)` : `${{sym.spread_bps.toFixed(1)}} bps (RECHAZO)`;
-      document.getElementById("step-1-val").style.color = passSpread ? "var(--emerald)" : "var(--rose)";
-
-      document.getElementById("step-4-val").innerText = `${{(s.max_drawdown * 100).toFixed(2)}}% (PASS)`;
-      document.getElementById("step-5-val").innerText = `Bias: ${{s.lead_lag_spy_bias >= 0 ? '+' : ''}}${{s.lead_lag_spy_bias.toFixed(2)}}`;
-      document.getElementById("step-6-val").innerText = sym.sor_intent;
-
-      // Update CTQW 8-level dispersion bars
+      // Update 8-level CTQW Dispersion
       const dispRow = document.getElementById("dispersion-bars-row");
       if (dispRow && sym.depth_dispersion) {{
         dispRow.innerHTML = sym.depth_dispersion.map((prob, idx) => {{
           const isMid = idx === 3 || idx === 4;
-          const h = Math.max(4, Math.min(34, prob * 60));
+          const h = Math.max(4, Math.min(26, prob * 55));
           return `
-            <div class="disp-bar-col">
+            <div class="disp-col">
               <div class="disp-bar ${{isMid ? 'mid' : ''}}" style="height: ${{h}}px;"></div>
-              <span class="disp-bar-label">${{idx < 4 ? 'B' + (3 - idx) : 'A' + (idx - 4)}}</span>
+              <span class="disp-tag mono">${{idx < 4 ? 'B' + (3 - idx) : 'A' + (idx - 4)}}</span>
             </div>
           `;
         }}).join("");
@@ -988,77 +1192,41 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
         wsBadge.className = "badge online";
         wsBadge.innerText = `● STREAMER ACTIVO (${{s.feed.toUpperCase()}})`;
       }} else {{
-        wsBadge.className = "badge offline";
-        wsBadge.innerText = "○ WS DESCONECTADO";
-      }}
-
-      const marketBadge = document.getElementById("badge-market");
-      if (s.market_open) {{
-        marketBadge.className = "badge info";
-        marketBadge.innerText = s.feed === "crypto" ? "● CRIPTO 24/7/365" : "● WALL STREET ABIERTO";
-      }} else {{
-        marketBadge.className = "badge offline";
-        marketBadge.innerText = "○ MERCADO CERRADO";
+        wsBadge.className = "badge amber";
+        wsBadge.innerText = "○ WS CONECTANDO...";
       }}
 
       document.getElementById("badge-phase").innerText = `FASE: ${{s.market_phase}}`;
       document.getElementById("val-throughput").innerText = Math.round(s.throughput_ticks_per_sec);
-      document.getElementById("val-rss").innerText = s.rss_mb.toFixed(2);
+      document.getElementById("val-rss").innerText = s.rss_mb.toFixed(1);
+      document.getElementById("val-latency").innerText = (s.avg_latency_ns / 1000.0).toFixed(1);
 
       // Broker Stats
       document.getElementById("card-broker-account").innerText = s.broker_account;
       document.getElementById("card-equity").innerText = `$${{s.current_equity.toLocaleString(undefined, {{minimumFractionDigits: 2, maximumFractionDigits: 2}})}} USD`;
       document.getElementById("card-bp").innerText = `$${{s.buying_power.toLocaleString(undefined, {{minimumFractionDigits: 2, maximumFractionDigits: 2}})}} USD`;
-      document.getElementById("card-sharpe").innerText = s.sharpe_ratio.toFixed(2);
-      document.getElementById("card-winrate").innerText = `${{(s.win_rate * 100).toFixed(1)}}%`;
-      document.getElementById("card-maxdd").innerText = `${{(s.max_drawdown * 100).toFixed(2)}}%`;
       document.getElementById("card-kelly").innerText = `${{s.kelly_leverage.toFixed(2)}}x`;
 
-      // Positions Container
-      const posContainer = document.getElementById("positions-container");
-      const posCountBadge = document.getElementById("pos-count");
+      const posLabel = document.getElementById("card-pos-count");
       if (s.positions && s.positions.length > 0) {{
-        posCountBadge.innerText = `${{s.positions.length}} ACTIVAS`;
-        posCountBadge.style.color = "var(--emerald)";
-        posContainer.innerHTML = s.positions.map(p => `
-          <div class="pos-item">
-            <div>
-              <strong style="color: #fff;">${{p.symbol}}</strong>
-              <span style="font-size: 10px; color: ${{p.side === 'LONG' ? 'var(--emerald)' : 'var(--rose)'}};">${{p.side}}</span>
-              <div style="font-size: 10px; color: var(--muted);">Qty: ${{p.qty}} &bull; Entrada: $${{p.entry_price.toFixed(2)}}</div>
-            </div>
-            <div style="text-align: right;">
-              <div style="font-weight: 700; color: ${{p.pnl_pct >= 0 ? 'var(--emerald)' : 'var(--rose)'}};">
-                ${{p.pnl_pct >= 0 ? '+' : ''}}${{p.pnl_pct.toFixed(2)}}%
-              </div>
-              <div style="font-size: 10px; color: var(--muted);">${{p.pnl_usd >= 0 ? '+' : ''}}$${{p.pnl_usd.toFixed(2)}} USD</div>
-            </div>
-          </div>
-        `).join("");
+        posLabel.innerText = `${{s.positions.length}} abierta(s) en broker`;
+        posLabel.style.color = "var(--emerald)";
       }} else {{
-        posCountBadge.innerText = "0 ACTIVAS";
-        posCountBadge.style.color = "var(--muted)";
-        posContainer.innerHTML = `<div class="empty-state">No hay posiciones abiertas activas en el broker.</div>`;
+        posLabel.innerText = "0 abiertas (Sin riesgo nocturno)";
+        posLabel.style.color = "var(--muted)";
       }}
 
-      // Event Logs Terminal
-      const termBox = document.getElementById("terminal-event-log");
+      // Live Ticker Line
       if (s.recent_logs && s.recent_logs.length > 0) {{
-        termBox.innerHTML = s.recent_logs.map(l => `
-          <div class="term-line">
-            <span class="term-time">[${{l.timestamp_str}}]</span>
-            <span class="term-sym">${{l.symbol}}</span>
-            <span class="term-msg ${{l.is_trade ? 'term-trade' : ''}}">${{l.message}}</span>
-          </div>
-        `).join("");
+        const latest = s.recent_logs[s.recent_logs.length - 1];
+        document.getElementById("live-ticker-msg").innerHTML = `<b>[${{latest.timestamp_str}}]</b> ${{latest.symbol}}: ${{latest.message}}`;
       }}
 
       renderCurrentSymbol();
     }}
 
-    // Polling Loop (Smooth asynchronous fetch every 750ms without full page reloads)
+    // Polling Loop: Seamless 750ms update without page reload
     async function pollStatus() {{
-      if (isPaused) return;
       try {{
         const resp = await fetch("/api/status");
         if (resp.ok) {{
@@ -1070,7 +1238,6 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       }}
     }}
 
-    // Initial render
     updateDashboard(cachedState);
     setInterval(pollStatus, 750);
   </script>
