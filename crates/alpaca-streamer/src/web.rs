@@ -361,6 +361,7 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
     .badge.online {{ background: rgba(16, 185, 129, 0.12); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }}
     .badge.info {{ background: rgba(56, 189, 248, 0.10); color: var(--cyan); border: 1px solid rgba(56, 189, 248, 0.25); }}
     .badge.purple {{ background: rgba(129, 140, 248, 0.12); color: var(--purple); border: 1px solid rgba(129, 140, 248, 0.3); }}
+    .badge.warn {{ background: rgba(245, 158, 11, 0.12); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }}
 
     /* Main Dashboard Grid: Strictly 100vh */
     .dashboard-grid {{
@@ -1321,6 +1322,23 @@ pub fn render_dashboard_html(initial_state: &WebDashboardState) -> String {
       }} else {{
         wsBadge.className = "badge info";
         wsBadge.innerText = "○ WS RECONECTANDO...";
+      }}
+
+      const mktBadge = document.getElementById("badge-market");
+      if (mktBadge) {{
+        if (s.feed === "crypto") {{
+          mktBadge.className = "badge info";
+          mktBadge.innerText = "● CRIPTO 24/7 (CONTINUO)";
+          mktBadge.title = "El mercado cripto opera sin interrupción 24/7";
+        }} else if (s.market_open) {{
+          mktBadge.className = "badge online";
+          mktBadge.innerText = "● WALL STREET ABIERTO (RTH)";
+          mktBadge.title = "Mercado Regular (09:30 - 16:00 EST)";
+        }} else {{
+          mktBadge.className = "badge warn mono";
+          mktBadge.innerText = "○ MERCADO CERRADO (Abre 9:30 AM EST)";
+          mktBadge.title = "Horario fuera de mercado de valores. Ticks en pausa hasta la apertura.";
+        }}
       }}
 
       document.getElementById("badge-phase").innerText = `FASE: ${{s.market_phase}}`;
