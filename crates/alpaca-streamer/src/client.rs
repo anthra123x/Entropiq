@@ -89,6 +89,17 @@ impl AlpacaStreamer {
             match connect_async(url).await {
                 Ok((ws_stream, _)) => {
                     retry_delay = std::time::Duration::from_secs(1);
+                    // Ultra-low latency optimization: Enforce TCP_NODELAY on the underlying WebSocket stream
+                    match ws_stream.get_ref() {
+                        tokio_tungstenite::MaybeTlsStream::Plain(s) => {
+                            let _ = s.set_nodelay(true);
+                        }
+                        tokio_tungstenite::MaybeTlsStream::Rustls(s) => {
+                            let _ = s.get_ref().0.set_nodelay(true);
+                        }
+                        _ => {}
+                    }
+
                     let (mut write, mut read) = ws_stream.split();
 
                     println!("[AlpacaStreamer] Connected. Waiting for server greeting...");
